@@ -18,6 +18,26 @@ export const colors = {
   lightBorder: "#E2E4E9",
   lightText: "#1A1A1A",
   lightMuted: "#6B7280",
+
+  // Calendar / holiday accents.
+  holidayRegular: "#E5484D", // regular holidays (red)
+  holidaySpecial: "#F2A20C", // special non-working days (amber)
+  today: "#4F8CFF",
+
+  // Course label palette — user picks one per course.
+  courseColors: [
+    "#4F8CFF",
+    "#E5484D",
+    "#12A594",
+    "#F2A20C",
+    "#8E4EC6",
+    "#E93D82",
+    "#30A46C",
+    "#5B5BD6",
+  ],
+
+  // Sticky-note palette for the canvas.
+  noteColors: ["#FFF7C2", "#D7F5DD", "#DCEBFF", "#FFE0E6", "#EADCFF", "#FFE8CC"],
 };
 
 export const spacing = {
