@@ -1,16 +1,19 @@
 {
   "expo": {
-    "name": "campus-schedule-app",
+    "name": "Campus Schedule",
     "slug": "campus-schedule-app",
     "scheme": "campusschedule",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.davesuan.campusschedule"
     },
     "android": {
+      "package": "com.davesuan.campusschedule",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { colors, radius, spacing } from "@/constants/theme";
+import { colors, radius, spacing, type Palette } from "@/constants/theme";
+import { ThemeToggle, useTheme } from "@/context/theme";
+import { ComingSoonButton } from "@/components/ComingSoonButton";
 
 // Import-from-LMS screen (e.g. UVLE). Mirrors the export panel on the
-// Calendar tab, but in reverse: paste/enter a source, choose what to
-// pull in, then bring it into this app's calendar. No network request
-// or parsing is implemented yet — see ARCHITECTURE.md roadmap item
-// "LMS import".
+// Calendar tab, but in reverse. No network request or parsing is
+// implemented yet — see ARCHITECTURE.md roadmap item "LMS import".
 const IMPORT_SCOPES = [
   "All events",
   "Events related to courses",
@@ -18,10 +18,12 @@ function RadioRow({
   label,
   selected,
   onSelect,
+  styles,
 }: {
   label: string;
   selected: boolean;
   onSelect: () => void;
+  styles: ReturnType<typeof makeStyles>;
 }) {
   return (
     <Pressable style={styles.radioRow} onPress={onSelect}>
@@ -34,23 +36,28 @@ function RadioRow({
 }
 
 export default function ImportScreen() {
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
   const [scope, setScope] = useState<string>(IMPORT_SCOPES[0]);
   const [sourceUrl, setSourceUrl] = useState("");
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Import from LMS</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Import from LMS</Text>
+        <ThemeToggle />
+      </View>
       <Text style={styles.sectionHint}>
         Paste a calendar/subscription URL from your LMS (e.g. UVLE&apos;s
-        &quot;Export calendar&quot; link) to bring those events into this
-        app. (UI only — nothing is fetched or saved yet.)
+        &quot;Export calendar&quot; link) to bring those events into this app.
+        (UI only — nothing is fetched or saved yet.)
       </Text>
 
       <Text style={styles.fieldLabel}>LMS calendar URL</Text>
       <TextInput
         style={styles.input}
         placeholder="https://uvle.upd.edu.ph/calendar/export_execute.php?..."
-        placeholderTextColor={colors.lightMuted}
+        placeholderTextColor={t.muted}
         value={sourceUrl}
         onChangeText={setSourceUrl}
         autoCapitalize="none"
@@ -65,13 +72,12 @@ export default function ImportScreen() {
             label={option}
             selected={scope === option}
             onSelect={() => setScope(option)}
+            styles={styles}
           />
         ))}
       </View>
 
-      <Pressable style={styles.button}>
-        <Text style={styles.buttonText}>Import</Text>
-      </Pressable>
+      <ComingSoonButton label="Import" style={styles.importBtn} />
 
       <View style={styles.statusBox}>
         <Text style={styles.statusText}>Not connected to an LMS yet.</Text>
@@ -80,95 +86,65 @@ export default function ImportScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.lightBg,
-  },
-  content: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xl,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: colors.lightText,
-    marginBottom: spacing.xs,
-  },
-  sectionHint: {
-    fontSize: 13,
-    color: colors.lightMuted,
-    marginBottom: spacing.lg,
-    lineHeight: 18,
-  },
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: colors.lightText,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.lightBorder,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    fontSize: 14,
-    color: colors.lightText,
-    backgroundColor: colors.lightSurface,
-  },
-  optionGroup: {
-    gap: spacing.xs,
-  },
-  radioRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: spacing.xs,
-    gap: spacing.sm,
-  },
-  radioOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: colors.lightBorder,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  radioOuterSelected: {
-    borderColor: colors.accent,
-  },
-  radioInner: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: colors.accent,
-  },
-  radioLabel: {
-    fontSize: 14,
-    color: colors.lightText,
-  },
-  button: {
-    marginTop: spacing.lg,
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: radius.sm,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-  },
-  statusBox: {
-    marginTop: spacing.lg,
-    backgroundColor: colors.lightSurface,
-    borderRadius: radius.sm,
-    padding: spacing.md,
-  },
-  statusText: {
-    fontSize: 13,
-    color: colors.lightMuted,
-    textAlign: "center",
-  },
-});
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.bg },
+    content: { padding: spacing.lg, paddingBottom: spacing.xl },
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.xs,
+    },
+    title: { fontSize: 24, fontWeight: "700", color: t.text },
+    sectionHint: {
+      fontSize: 13,
+      color: t.muted,
+      marginBottom: spacing.lg,
+      lineHeight: 18,
+    },
+    fieldLabel: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: t.text,
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: t.border,
+      borderRadius: radius.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm + 2,
+      fontSize: 14,
+      color: t.text,
+      backgroundColor: t.surface,
+    },
+    optionGroup: { gap: spacing.xs },
+    radioRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: spacing.xs,
+      gap: spacing.sm,
+    },
+    radioOuter: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      borderWidth: 2,
+      borderColor: t.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    radioOuterSelected: { borderColor: colors.accent },
+    radioInner: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent },
+    radioLabel: { fontSize: 14, color: t.text },
+    importBtn: { marginTop: spacing.lg },
+    statusBox: {
+      marginTop: spacing.lg,
+      backgroundColor: t.surface,
+      borderRadius: radius.sm,
+      padding: spacing.md,
+    },
+    statusText: { fontSize: 13, color: t.muted, textAlign: "center" },
+  });

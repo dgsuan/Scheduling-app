@@ -41,6 +41,64 @@ export function formatRange(start: string, end: string): string {
   return `${formatTime(s)} – ${formatTime(e)}`;
 }
 
+// --- 12-hour entry helpers -------------------------------------------
+
+export type Period = "AM" | "PM";
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Split stored 24h "HH:MM" into 12-hour display parts. */
+export function to12h(
+  value: string
+): { hour: number; minute: number; period: Period } | null {
+  const min = parseTime(value);
+  if (min == null) return null;
+  const h24 = Math.floor(min / 60);
+  const minute = min % 60;
+  const period: Period = h24 >= 12 ? "PM" : "AM";
+  const hour = h24 % 12 === 0 ? 12 : h24 % 12;
+  return { hour, minute, period };
+}
+
+/** Pretty 12h label for a stored 24h value, e.g. "12:43 PM" ("" if invalid). */
+export function display12h(value: string): string {
+  const p = to12h(value);
+  return p ? `${p.hour}:${pad2(p.minute)} ${p.period}` : "";
+}
+
+/**
+ * Lenient 12-hour time entry. Accepts "1", "12", "930", "9:5", "1243",
+ * "12:43" (+ an AM/PM choice) and returns stored 24h "HH:MM", or null.
+ * A typed 13–23 hour is accepted as-is (24h fallback) so power users who
+ * type "1330" still get 1:30 PM.
+ */
+export function parse12h(input: string, period: Period): string | null {
+  const digits = input.replace(/\D/g, "");
+  if (!digits) return null;
+
+  let hour: number;
+  let minute: number;
+  if (digits.length <= 2) {
+    hour = Number(digits);
+    minute = 0;
+  } else if (digits.length === 3) {
+    hour = Number(digits.slice(0, 1));
+    minute = Number(digits.slice(1));
+  } else {
+    hour = Number(digits.slice(0, 2));
+    minute = Number(digits.slice(2, 4));
+  }
+  if (minute > 59) return null;
+
+  if (hour >= 13 && hour <= 23) return `${pad2(hour)}:${pad2(minute)}`;
+  if (hour === 0) return `00:${pad2(minute)}`;
+  if (hour < 1 || hour > 12) return null;
+
+  let h24 = hour % 12;
+  if (period === "PM") h24 += 12;
+  return `${pad2(h24)}:${pad2(minute)}`;
+}
+
 export type ClassOccurrence = {
   course: Course;
   meeting: Meeting;

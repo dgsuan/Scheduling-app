@@ -12,18 +12,19 @@ import {
   View,
 } from "react-native";
 
-import { colors, radius, spacing } from "@/constants/theme";
+import { colors, radius, spacing, type Palette } from "@/constants/theme";
+import { ThemeToggle, useTheme } from "@/context/theme";
 import type { Course, Meeting, Weekday } from "@/context/store";
 import { useCourses } from "@/context/store";
-import { formatRange, parseTime, WEEKDAY_SHORT } from "@/lib/schedule";
 import {
-  HUES,
-  hslToHex,
-  hueSwatch,
-  isLight,
-  LIGHTNESS_RAMP,
-  normalizeHex,
-} from "@/lib/color";
+  formatRange,
+  parse12h,
+  parseTime,
+  to12h,
+  WEEKDAY_SHORT,
+  type Period,
+} from "@/lib/schedule";
+import { ColorPicker } from "@/components/ColorPicker";
 
 const DAY_CHIPS: { value: Weekday; label: string }[] = [
   { value: 1, label: "M" },
@@ -39,111 +40,6 @@ function emptyMeeting(): Meeting {
   return { days: [], start: "", end: "", room: "" };
 }
 
-const HUE_SAT = 68;
-
-// Color picker: quick presets + a full hue wheel row + a lightness ramp
-// for the chosen hue + freeform hex entry. Far more than the original 8.
-function ColorField({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (hex: string) => void;
-}) {
-  const [hue, setHue] = useState<number>(HUES[0]);
-  const [hexText, setHexText] = useState<string>(value);
-
-  const commitHex = (raw: string) => {
-    setHexText(raw);
-    const norm = normalizeHex(raw);
-    if (norm) onChange(norm);
-  };
-
-  return (
-    <View>
-      <Text style={styles.fieldLabel}>Label color</Text>
-
-      <View style={styles.colorPreviewRow}>
-        <View style={[styles.colorPreview, { backgroundColor: value }]}>
-          <Text
-            style={[
-              styles.colorPreviewText,
-              { color: isLight(value) ? "#1A1A1A" : "#FFFFFF" },
-            ]}
-          >
-            {value}
-          </Text>
-        </View>
-        <TextInput
-          style={[styles.input, styles.hexInput]}
-          value={hexText}
-          onChangeText={commitHex}
-          onBlur={() => setHexText(value)}
-          placeholder="#4F8CFF"
-          placeholderTextColor={colors.lightMuted}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={7}
-        />
-      </View>
-
-      <Text style={styles.smallLabel}>Presets</Text>
-      <View style={styles.swatchRow}>
-        {colors.courseColors.map((c) => (
-          <Pressable
-            key={c}
-            onPress={() => {
-              onChange(c);
-              setHexText(c);
-            }}
-            style={[styles.swatch, { backgroundColor: c }, value === c && styles.swatchSelected]}
-          />
-        ))}
-      </View>
-
-      <Text style={styles.smallLabel}>Hue</Text>
-      <View style={styles.swatchRow}>
-        {HUES.map((h) => {
-          const sw = hueSwatch(h);
-          return (
-            <Pressable
-              key={h}
-              onPress={() => {
-                setHue(h);
-                const hex = hslToHex(h, HUE_SAT, 52);
-                onChange(hex);
-                setHexText(hex);
-              }}
-              style={[styles.swatch, { backgroundColor: sw }, hue === h && styles.swatchSelected]}
-            />
-          );
-        })}
-      </View>
-
-      <Text style={styles.smallLabel}>Shade</Text>
-      <View style={styles.swatchRow}>
-        {LIGHTNESS_RAMP.map((l) => {
-          const hex = hslToHex(hue, HUE_SAT, l);
-          return (
-            <Pressable
-              key={l}
-              onPress={() => {
-                onChange(hex);
-                setHexText(hex);
-              }}
-              style={[
-                styles.swatch,
-                { backgroundColor: hex },
-                normalizeHex(value) === hex && styles.swatchSelected,
-              ]}
-            />
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
 function meetingSummary(m: Meeting): string {
   const days = [...m.days]
     .sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7))
@@ -151,6 +47,77 @@ function meetingSummary(m: Meeting): string {
     .join(" / ");
   const time = m.start && m.end ? formatRange(m.start, m.end) : "time not set";
   return `${days || "no days"} · ${time}${m.room ? ` · ${m.room}` : ""}`;
+}
+
+// 12-hour time entry with an AM/PM toggle. Lenient: "1243" reads as
+// 12:43, "930" as 9:30, "9" as 9:00. Reports back a stored 24h "HH:MM".
+function TimeField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v24: string) => void;
+}) {
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
+  const initial = to12h(value);
+  const [text, setText] = useState(
+    initial ? `${initial.hour}:${String(initial.minute).padStart(2, "0")}` : ""
+  );
+  const [period, setPeriod] = useState<Period>(initial?.period ?? "AM");
+
+  const push = (raw: string, p: Period) => {
+    const v24 = parse12h(raw, p);
+    onChange(v24 ?? "");
+  };
+
+  const handleText = (raw: string) => {
+    setText(raw);
+    push(raw, period);
+  };
+  const handlePeriod = (p: Period) => {
+    setPeriod(p);
+    push(text, p);
+  };
+  const handleBlur = () => {
+    const parts = to12h(parse12h(text, period) ?? "");
+    if (parts) {
+      setText(`${parts.hour}:${String(parts.minute).padStart(2, "0")}`);
+      setPeriod(parts.period);
+    }
+  };
+
+  return (
+    <View style={styles.rowItem}>
+      <Text style={styles.smallLabel}>{label}</Text>
+      <View style={styles.timeRow}>
+        <TextInput
+          style={[styles.input, styles.timeInput]}
+          value={text}
+          onChangeText={handleText}
+          onBlur={handleBlur}
+          placeholder="12:43"
+          placeholderTextColor={t.muted}
+          keyboardType="numbers-and-punctuation"
+        />
+        <View style={styles.periodToggle}>
+          {(["AM", "PM"] as Period[]).map((p) => (
+            <Pressable
+              key={p}
+              onPress={() => handlePeriod(p)}
+              style={[styles.periodBtn, period === p && styles.periodBtnOn]}
+            >
+              <Text style={[styles.periodText, period === p && styles.periodTextOn]}>
+                {p}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
 }
 
 // --- Add / edit form -------------------------------------------------------
@@ -164,6 +131,8 @@ function CourseForm({
   onSubmit: (data: Omit<Course, "id">) => void;
   onCancel: () => void;
 }) {
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
   const [code, setCode] = useState(initial?.code ?? "");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [section, setSection] = useState(initial?.section ?? "");
@@ -204,7 +173,7 @@ function CourseForm({
       const s = parseTime(m.start);
       const e = parseTime(m.end);
       if (s == null || e == null) {
-        Alert.alert("Check the time", "Use 24-hour HH:MM, e.g. 14:30.");
+        Alert.alert("Check the time", "Enter a start and end time like 12:43, and pick AM/PM.");
         return;
       }
       if (e <= s) {
@@ -253,7 +222,7 @@ function CourseForm({
             value={code}
             onChangeText={setCode}
             placeholder="CMSC 13"
-            placeholderTextColor={colors.lightMuted}
+            placeholderTextColor={t.muted}
             autoCapitalize="characters"
           />
 
@@ -263,7 +232,7 @@ function CourseForm({
             value={title}
             onChangeText={setTitle}
             placeholder="Programming in C"
-            placeholderTextColor={colors.lightMuted}
+            placeholderTextColor={t.muted}
           />
 
           <View style={styles.row}>
@@ -274,7 +243,7 @@ function CourseForm({
                 value={section}
                 onChangeText={setSection}
                 placeholder="N"
-                placeholderTextColor={colors.lightMuted}
+                placeholderTextColor={t.muted}
               />
             </View>
             <View style={styles.rowItem}>
@@ -284,12 +253,12 @@ function CourseForm({
                 value={instructor}
                 onChangeText={setInstructor}
                 placeholder="Prof. Dela Cruz"
-                placeholderTextColor={colors.lightMuted}
+                placeholderTextColor={t.muted}
               />
             </View>
           </View>
 
-          <ColorField value={color} onChange={setColor} />
+          <ColorPicker value={color} onChange={setColor} label="Label color" />
 
           <View style={styles.meetingsHeader}>
             <Text style={styles.fieldLabel}>Meeting times</Text>
@@ -328,28 +297,16 @@ function CourseForm({
               </View>
 
               <View style={styles.row}>
-                <View style={styles.rowItem}>
-                  <Text style={styles.smallLabel}>Start (HH:MM)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={m.start}
-                    onChangeText={(t) => patchMeeting(i, { start: t })}
-                    placeholder="14:30"
-                    placeholderTextColor={colors.lightMuted}
-                    keyboardType="numbers-and-punctuation"
-                  />
-                </View>
-                <View style={styles.rowItem}>
-                  <Text style={styles.smallLabel}>End (HH:MM)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={m.end}
-                    onChangeText={(t) => patchMeeting(i, { end: t })}
-                    placeholder="16:00"
-                    placeholderTextColor={colors.lightMuted}
-                    keyboardType="numbers-and-punctuation"
-                  />
-                </View>
+                <TimeField
+                  label="Start"
+                  value={m.start}
+                  onChange={(v) => patchMeeting(i, { start: v })}
+                />
+                <TimeField
+                  label="End"
+                  value={m.end}
+                  onChange={(v) => patchMeeting(i, { end: v })}
+                />
               </View>
 
               <Text style={styles.smallLabel}>Room</Text>
@@ -358,7 +315,7 @@ function CourseForm({
                 value={m.room}
                 onChangeText={(t) => patchMeeting(i, { room: t })}
                 placeholder="CS Laboratory 2"
-                placeholderTextColor={colors.lightMuted}
+                placeholderTextColor={t.muted}
               />
             </View>
           ))}
@@ -381,6 +338,8 @@ function CourseForm({
 
 export default function CoursesScreen() {
   const { courses, addCourse, updateCourse, removeCourse } = useCourses();
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Course | null>(null);
 
@@ -407,7 +366,10 @@ export default function CoursesScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>My Courses</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>My Courses</Text>
+          <ThemeToggle />
+        </View>
         <Text style={styles.subtitle}>
           Add the classes you&apos;re enrolled in. The Schedule and Calendar tabs
           read from this list.
@@ -479,40 +441,46 @@ export default function CoursesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.lightBg },
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+  screen: { flex: 1, backgroundColor: t.bg },
   content: { padding: spacing.lg, paddingBottom: 120 },
-  title: { fontSize: 24, fontWeight: "700", color: colors.lightText },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  title: { fontSize: 24, fontWeight: "700", color: t.text },
   subtitle: {
     fontSize: 13,
-    color: colors.lightMuted,
+    color: t.muted,
     marginTop: spacing.xs,
     marginBottom: spacing.lg,
     lineHeight: 18,
   },
 
   emptyCard: {
-    backgroundColor: colors.lightSurface,
+    backgroundColor: t.surface,
     borderRadius: radius.md,
     padding: spacing.xl,
     alignItems: "center",
   },
-  emptyText: { fontSize: 15, fontWeight: "600", color: colors.lightText },
-  emptyHint: { fontSize: 13, color: colors.lightMuted, marginTop: spacing.xs },
+  emptyText: { fontSize: 15, fontWeight: "600", color: t.text },
+  emptyHint: { fontSize: 13, color: t.muted, marginTop: spacing.xs },
 
   courseCard: {
     flexDirection: "row",
-    backgroundColor: colors.lightSurface,
+    backgroundColor: t.surface,
     borderRadius: radius.md,
     marginBottom: spacing.md,
     overflow: "hidden",
   },
   colorBar: { width: 6 },
   courseBody: { flex: 1, padding: spacing.md },
-  courseCode: { fontSize: 16, fontWeight: "700", color: colors.lightText },
-  courseTitle: { fontSize: 14, color: colors.lightText, marginTop: 2 },
-  courseMeta: { fontSize: 13, color: colors.lightMuted, marginTop: 2 },
-  courseMeeting: { fontSize: 13, color: colors.lightMuted, marginTop: spacing.xs },
+  courseCode: { fontSize: 16, fontWeight: "700", color: t.text },
+  courseTitle: { fontSize: 14, color: t.text, marginTop: 2 },
+  courseMeta: { fontSize: 13, color: t.muted, marginTop: 2 },
+  courseMeeting: { fontSize: 13, color: t.muted, marginTop: spacing.xs },
   cardActions: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.md },
   actionEdit: { fontSize: 13, fontWeight: "700", color: colors.accent },
   actionRemove: { fontSize: 13, fontWeight: "700", color: colors.danger },
@@ -540,7 +508,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalCard: {
-    backgroundColor: colors.lightBg,
+    backgroundColor: t.bg,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
     maxHeight: "92%",
@@ -553,40 +521,53 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: spacing.md,
   },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: colors.lightText },
-  modalClose: { fontSize: 18, color: colors.lightMuted },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: t.text },
+  modalClose: { fontSize: 18, color: t.muted },
   modalScroll: { paddingHorizontal: spacing.lg },
   modalScrollContent: { paddingBottom: spacing.lg },
 
   fieldLabel: {
     fontSize: 13,
     fontWeight: "700",
-    color: colors.lightText,
+    color: t.text,
     marginTop: spacing.md,
     marginBottom: spacing.sm,
   },
   smallLabel: {
     fontSize: 12,
-    color: colors.lightMuted,
+    color: t.muted,
     marginTop: spacing.sm,
     marginBottom: spacing.xs,
   },
   input: {
     borderWidth: 1,
-    borderColor: colors.lightBorder,
+    borderColor: t.border,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
     fontSize: 14,
-    color: colors.lightText,
-    backgroundColor: colors.lightSurface,
+    color: t.text,
+    backgroundColor: t.surface,
   },
   row: { flexDirection: "row", gap: spacing.sm },
   rowItem: { flex: 1 },
+  timeRow: { flexDirection: "row", gap: spacing.xs, alignItems: "center" },
+  timeInput: { flex: 1, minWidth: 0 },
+  periodToggle: {
+    flexDirection: "row",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: t.border,
+    overflow: "hidden",
+  },
+  periodBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm + 2, backgroundColor: t.surface },
+  periodBtnOn: { backgroundColor: colors.accent },
+  periodText: { fontSize: 12, fontWeight: "700", color: t.text },
+  periodTextOn: { color: "#FFFFFF" },
 
   swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.xs },
   swatch: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: "transparent" },
-  swatchSelected: { borderColor: colors.lightText },
+  swatchSelected: { borderColor: t.text },
   colorPreviewRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
   colorPreview: {
     width: 96,
@@ -606,7 +587,7 @@ const styles = StyleSheet.create({
   addMeeting: { fontSize: 13, fontWeight: "700", color: colors.accent, marginTop: spacing.md },
   meetingCard: {
     borderWidth: 1,
-    borderColor: colors.lightBorder,
+    borderColor: t.border,
     borderRadius: radius.md,
     padding: spacing.md,
     marginTop: spacing.sm,
@@ -618,12 +599,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm + 2,
     paddingVertical: spacing.xs + 2,
     borderRadius: radius.sm,
-    backgroundColor: colors.lightSurface,
+    backgroundColor: t.surface,
     borderWidth: 1,
-    borderColor: colors.lightBorder,
+    borderColor: t.border,
   },
   dayChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  dayChipText: { fontSize: 13, fontWeight: "600", color: colors.lightText },
+  dayChipText: { fontSize: 13, fontWeight: "600", color: t.text },
   dayChipTextOn: { color: "#FFFFFF" },
 
   modalActions: {
@@ -633,8 +614,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
   },
   button: { flex: 1, paddingVertical: spacing.sm + 4, borderRadius: radius.sm, alignItems: "center" },
-  buttonSecondary: { backgroundColor: colors.lightSurface, borderWidth: 1, borderColor: colors.lightBorder },
-  buttonSecondaryText: { color: colors.lightText, fontWeight: "700" },
+  buttonSecondary: { backgroundColor: t.surface, borderWidth: 1, borderColor: t.border },
+  buttonSecondaryText: { color: t.text, fontWeight: "700" },
   buttonPrimary: { backgroundColor: colors.accent },
   buttonPrimaryText: { color: "#FFFFFF", fontWeight: "700" },
 });

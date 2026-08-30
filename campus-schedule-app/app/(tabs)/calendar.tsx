@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { colors, radius, spacing } from "@/constants/theme";
+import { colors, radius, spacing, type Palette } from "@/constants/theme";
+import { ThemeToggle, useTheme } from "@/context/theme";
+import { ComingSoonButton } from "@/components/ComingSoonButton";
 import { getHolidays, holidayMap, type Holiday } from "@/constants/holidays";
-import { useCourses } from "@/context/store";
+import { useCourses, useTasks } from "@/context/store";
 import { formatRange, occurrencesOnDay } from "@/lib/schedule";
+import { dueOn, sortTasks } from "@/lib/tasks";
 import type { Weekday } from "@/context/store";
 
 const EVENTS_TO_EXPORT = [
@@ -41,6 +44,7 @@ function RadioRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const styles = makeStyles(useTheme());
   return (
     <Pressable style={styles.radioRow} onPress={onSelect}>
       <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
@@ -58,12 +62,14 @@ type DayCell = {
   isToday: boolean;
   holidays: Holiday[];
   classColors: string[];
+  taskCount: number;
 };
 
 function buildMonth(
   year: number,
   month: number, // 0-indexed
-  classColorsByWeekday: string[][]
+  classColorsByWeekday: string[][],
+  taskCountByDate: Map<string, number>
 ): (DayCell | null)[] {
   const first = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -85,6 +91,7 @@ function buildMonth(
       isToday: iso === todayIso,
       holidays: holidays.get(iso) ?? [],
       classColors: classColorsByWeekday[weekday],
+      taskCount: taskCountByDate.get(iso) ?? 0,
     });
   }
   while (cells.length % 7 !== 0) cells.push(null);
@@ -93,6 +100,9 @@ function buildMonth(
 
 function MonthCalendar() {
   const { courses } = useCourses();
+  const { tasks } = useTasks();
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -110,9 +120,17 @@ function MonthCalendar() {
     return arr;
   }, [courses]);
 
+  const taskCountByDate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of tasks) {
+      if (t.due) m.set(t.due, (m.get(t.due) ?? 0) + 1);
+    }
+    return m;
+  }, [tasks]);
+
   const cells = useMemo(
-    () => buildMonth(year, month, classColorsByWeekday),
-    [year, month, classColorsByWeekday]
+    () => buildMonth(year, month, classColorsByWeekday, taskCountByDate),
+    [year, month, classColorsByWeekday, taskCountByDate]
   );
 
   const monthHolidays = useMemo(
@@ -140,6 +158,7 @@ function MonthCalendar() {
   const selectedClasses = selectedCell
     ? occurrencesOnDay(courses, selectedCell.weekday)
     : [];
+  const selectedTasks = selectedCell ? sortTasks(dueOn(tasks, selectedCell.iso)) : [];
 
   return (
     <View>
@@ -207,6 +226,9 @@ function MonthCalendar() {
                     {cell.classColors.slice(0, 3).map((c, ci) => (
                       <View key={ci} style={[styles.marker, { backgroundColor: c }]} />
                     ))}
+                    {cell.taskCount > 0 && (
+                      <View style={[styles.marker, styles.taskMarker]} />
+                    )}
                   </View>
                 </View>
               </Pressable>
@@ -219,6 +241,7 @@ function MonthCalendar() {
         <Legend color={colors.holidayRegular} label="Regular holiday" />
         <Legend color={colors.holidaySpecial} label="Special day" />
         <Legend color={colors.accent} label="Class (course color)" />
+        <Legend color={t.text} label="Task due" />
       </View>
 
       {selectedCell ? (
@@ -236,15 +259,23 @@ function MonthCalendar() {
               {h.approx ? "  (date approximate)" : ""}
             </Text>
           ))}
-          {selectedClasses.length > 0 ? (
-            selectedClasses.map((o, i) => (
-              <Text key={`c-${i}`} style={styles.selectedClass}>
-                📚 {o.course.code} · {formatRange(o.meeting.start, o.meeting.end)}
-                {o.meeting.room ? ` · ${o.meeting.room}` : ""}
-              </Text>
-            ))
-          ) : null}
-          {selectedCell.holidays.length === 0 && selectedClasses.length === 0 ? (
+          {selectedClasses.map((o, i) => (
+            <Text key={`c-${i}`} style={styles.selectedClass}>
+              📚 {o.course.code} · {formatRange(o.meeting.start, o.meeting.end)}
+              {o.meeting.room ? ` · ${o.meeting.room}` : ""}
+            </Text>
+          ))}
+          {selectedTasks.map((t) => (
+            <Text
+              key={t.id}
+              style={[styles.selectedClass, t.done && styles.selectedTaskDone]}
+            >
+              {t.done ? "☑" : "☐"} {t.title || "Untitled task"}
+            </Text>
+          ))}
+          {selectedCell.holidays.length === 0 &&
+          selectedClasses.length === 0 &&
+          selectedTasks.length === 0 ? (
             <Text style={styles.selectedEmpty}>Nothing on this day.</Text>
           ) : null}
         </View>
@@ -284,6 +315,7 @@ function MonthCalendar() {
 }
 
 function Legend({ color, label }: { color: string; label: string }) {
+  const styles = makeStyles(useTheme());
   return (
     <View style={styles.legendItem}>
       <View style={[styles.marker, { backgroundColor: color }]} />
@@ -293,12 +325,21 @@ function Legend({ color, label }: { color: string; label: string }) {
 }
 
 export default function CalendarScreen() {
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
   const [eventsChoice, setEventsChoice] = useState<string>(EVENTS_TO_EXPORT[0]);
   const [periodChoice, setPeriodChoice] = useState<string>(TIME_PERIODS[0]);
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Calendar</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Calendar</Text>
+        <ThemeToggle />
+      </View>
+      <Text style={styles.sectionHint}>
+        Tap any day to see its holidays, classes and tasks. Philippine holidays
+        show automatically.
+      </Text>
 
       <MonthCalendar />
 
@@ -335,21 +376,23 @@ export default function CalendarScreen() {
       </View>
 
       <View style={styles.buttonRow}>
-        <Pressable style={[styles.button, styles.buttonSecondary]}>
-          <Text style={styles.buttonSecondaryText}>Get calendar URL</Text>
-        </Pressable>
-        <Pressable style={[styles.button, styles.buttonPrimary]}>
-          <Text style={styles.buttonPrimaryText}>Export</Text>
-        </Pressable>
+        <ComingSoonButton label="Get calendar URL" style={styles.button} />
+        <ComingSoonButton label="Export" style={styles.button} />
       </View>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   screen: {
     flex: 1,
-    backgroundColor: colors.lightBg,
+    backgroundColor: t.bg,
   },
   content: {
     padding: spacing.lg,
@@ -358,7 +401,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "700",
-    color: colors.lightText,
+    color: t.text,
     marginBottom: spacing.md,
   },
   monthHeader: {
@@ -370,7 +413,7 @@ const styles = StyleSheet.create({
   monthTitle: {
     fontSize: 17,
     fontWeight: "700",
-    color: colors.lightText,
+    color: t.text,
   },
   navBtn: {
     width: 36,
@@ -378,15 +421,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.sm,
-    backgroundColor: colors.lightSurface,
+    backgroundColor: t.surface,
   },
   navBtnText: {
     fontSize: 20,
-    color: colors.lightText,
+    color: t.text,
     lineHeight: 22,
   },
   monthGrid: {
-    backgroundColor: colors.lightSurface,
+    backgroundColor: t.surface,
     borderRadius: radius.md,
     padding: spacing.sm,
   },
@@ -398,7 +441,7 @@ const styles = StyleSheet.create({
     width: `${100 / 7}%`,
     textAlign: "center",
     fontSize: 12,
-    color: colors.lightMuted,
+    color: t.muted,
     fontWeight: "600",
   },
   daysWrap: {
@@ -424,11 +467,11 @@ const styles = StyleSheet.create({
   },
   daySelected: {
     borderWidth: 2,
-    borderColor: colors.lightText,
+    borderColor: t.text,
   },
   dayText: {
     fontSize: 13,
-    color: colors.lightText,
+    color: t.text,
   },
   dayTextToday: {
     color: "#FFFFFF",
@@ -449,6 +492,11 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
   },
+  taskMarker: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: t.text,
+  },
   legendRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -462,11 +510,11 @@ const styles = StyleSheet.create({
   },
   legendText: {
     fontSize: 11,
-    color: colors.lightMuted,
+    color: t.muted,
   },
   selectedCard: {
     marginTop: spacing.md,
-    backgroundColor: colors.lightSurface,
+    backgroundColor: t.surface,
     borderRadius: radius.md,
     padding: spacing.md,
     gap: spacing.xs,
@@ -474,7 +522,7 @@ const styles = StyleSheet.create({
   selectedDate: {
     fontSize: 14,
     fontWeight: "700",
-    color: colors.lightText,
+    color: t.text,
     marginBottom: spacing.xs,
   },
   selectedHoliday: {
@@ -483,16 +531,20 @@ const styles = StyleSheet.create({
   },
   selectedClass: {
     fontSize: 13,
-    color: colors.lightText,
+    color: t.text,
+  },
+  selectedTaskDone: {
+    color: t.muted,
+    textDecorationLine: "line-through",
   },
   selectedEmpty: {
     fontSize: 13,
-    color: colors.lightMuted,
+    color: t.muted,
   },
   sectionSubTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: colors.lightText,
+    color: t.text,
     marginTop: spacing.lg,
     marginBottom: spacing.sm,
   },
@@ -511,32 +563,32 @@ const styles = StyleSheet.create({
     width: 22,
     fontSize: 13,
     fontWeight: "700",
-    color: colors.lightText,
+    color: t.text,
   },
   holidayName: {
     flex: 1,
     fontSize: 13,
-    color: colors.lightText,
+    color: t.text,
   },
   disclaimer: {
     fontSize: 11,
-    color: colors.lightMuted,
+    color: t.muted,
     lineHeight: 16,
     marginTop: spacing.sm,
   },
   divider: {
     height: 1,
-    backgroundColor: colors.lightBorder,
+    backgroundColor: t.border,
     marginVertical: spacing.lg,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: colors.lightText,
+    color: t.text,
   },
   sectionHint: {
     fontSize: 13,
-    color: colors.lightMuted,
+    color: t.muted,
     marginTop: spacing.xs,
     marginBottom: spacing.md,
     lineHeight: 18,
@@ -544,7 +596,7 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 13,
     fontWeight: "700",
-    color: colors.lightText,
+    color: t.text,
     marginTop: spacing.md,
     marginBottom: spacing.sm,
   },
@@ -562,7 +614,7 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     borderWidth: 2,
-    borderColor: colors.lightBorder,
+    borderColor: t.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -577,7 +629,7 @@ const styles = StyleSheet.create({
   },
   radioLabel: {
     fontSize: 14,
-    color: colors.lightText,
+    color: t.text,
   },
   buttonRow: {
     flexDirection: "row",
@@ -591,12 +643,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   buttonSecondary: {
-    backgroundColor: colors.lightSurface,
+    backgroundColor: t.surface,
     borderWidth: 1,
-    borderColor: colors.lightBorder,
+    borderColor: t.border,
   },
   buttonSecondaryText: {
-    color: colors.lightText,
+    color: t.text,
     fontWeight: "600",
   },
   buttonPrimary: {

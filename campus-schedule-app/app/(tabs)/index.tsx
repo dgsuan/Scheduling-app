@@ -1,62 +1,155 @@
 import { useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import Svg, { Circle } from "react-native-svg";
 
-import { colors, radius, spacing } from "@/constants/theme";
-import { useCourses } from "@/context/store";
+import { colors, radius, spacing, type Palette } from "@/constants/theme";
+import { ThemeToggle, useTheme } from "@/context/theme";
+import { getHolidays, holidaysOn } from "@/constants/holidays";
+import { useCourses, useTasks } from "@/context/store";
+import type { Weekday } from "@/context/store";
 import {
   computeNowAndNext,
   formatRange,
   occurrencesOnDay,
   relativeDayLabel,
 } from "@/lib/schedule";
-import { holidaysOn } from "@/constants/holidays";
-import type { Weekday } from "@/context/store";
+import {
+  friendlyDue,
+  isOverdue,
+  isoDate,
+  sortTasks,
+  todayIso,
+  withinNextDays,
+} from "@/lib/tasks";
 
-function isoDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
+function greeting(h: number): string {
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function ProgressRing({ pct }: { pct: number }) {
+  const t = useTheme();
+  const styles = makeStyles(t);
+  const size = 88;
+  const stroke = 9;
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  return (
+    <View style={{ width: size, height: size }}>
+      <Svg width={size} height={size}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={t.cardBorder} strokeWidth={stroke} fill="none" />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke={colors.accent}
+          strokeWidth={stroke}
+          fill="none"
+          strokeDasharray={`${circ} ${circ}`}
+          strokeDashoffset={circ * (1 - pct)}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </Svg>
+      <View style={styles.ringLabel}>
+        <Text style={styles.ringPct}>{Math.round(pct * 100)}%</Text>
+      </View>
+    </View>
+  );
+}
+
+function Stat({ value, label, danger }: { value: number; label: string; danger?: boolean }) {
+  const styles = makeStyles(useTheme());
+  return (
+    <View style={styles.stat}>
+      <Text style={[styles.statValue, danger && value > 0 && styles.statDanger]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
 }
 
 export default function ScheduleHomeScreen() {
   const { courses } = useCourses();
+  const { tasks, addTask, updateTask } = useTasks();
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
 
-  // Re-render every 30s so "ongoing / next" stays honest as time passes.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(id);
   }, []);
 
+  const [quick, setQuick] = useState("");
+
   const dateLabel = now.toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",
-  });
-  const timeLabel = now.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
+    year: "numeric",
   });
 
-  const { ongoing, next } = useMemo(
-    () => computeNowAndNext(courses, now),
-    [courses, now]
-  );
-
+  const { ongoing, next } = useMemo(() => computeNowAndNext(courses, now), [courses, now]);
   const todaysClasses = useMemo(
     () => occurrencesOnDay(courses, now.getDay() as Weekday),
     [courses, now]
   );
 
-  const todayHolidays = holidaysOn(isoDate(now));
+  const tIso = isoDate(now);
+  const todayTasks = useMemo(
+    () => sortTasks(tasks.filter((t) => t.due === tIso)),
+    [tasks, tIso]
+  );
+  const doneToday = todayTasks.filter((t) => t.done).length;
+  const pct = todayTasks.length ? doneToday / todayTasks.length : 0;
+  const overdueCount = tasks.filter((t) => isOverdue(t, tIso)).length;
+  const dueTodayCount = todayTasks.filter((t) => !t.done).length;
+
+  const upcomingTasks = useMemo(
+    () => withinNextDays(tasks, 7, now).filter((t) => t.due !== tIso),
+    [tasks, now, tIso]
+  );
+
+  const endIso = isoDate(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7)
+  );
+  const holidaysThisWeek = useMemo(() => {
+    const years = [now.getFullYear(), now.getFullYear() + 1];
+    return years
+      .flatMap((y) => getHolidays(y))
+      .filter((h) => h.date >= tIso && h.date <= endIso);
+  }, [now, tIso, endIso]);
+  const upcomingHolidays = holidaysThisWeek.filter((h) => h.date !== tIso);
+
+  const todayHolidays = holidaysOn(tIso);
+
+  const addQuick = () => {
+    const text = quick.trim();
+    if (!text) return;
+    addTask({ title: text, priority: "medium", due: todayIso(), done: false });
+    setQuick("");
+  };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Schedule</Text>
-        <Text style={styles.headerSubtitle}>
-          {dateLabel} · {timeLabel}
-        </Text>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.headerRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.greeting}>{greeting(now.getHours())}</Text>
+          <Text style={styles.date}>{dateLabel}</Text>
+        </View>
+        <ThemeToggle />
       </View>
 
       {todayHolidays.length > 0 ? (
@@ -67,225 +160,266 @@ export default function ScheduleHomeScreen() {
         </View>
       ) : null}
 
+      {/* Up next */}
       <View style={styles.card}>
-        <Text style={styles.cardLabel}>Ongoing Class</Text>
+        <Text style={styles.cardLabel}>Up Next</Text>
         {ongoing ? (
           <>
-            <Text style={styles.courseCode}>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>NOW</Text>
+            </View>
+            <Text style={styles.bigTitle}>
               {ongoing.course.code}
               {ongoing.course.section ? ` (${ongoing.course.section})` : ""}
             </Text>
-            {ongoing.course.title ? (
-              <Text style={styles.courseTitle}>{ongoing.course.title}</Text>
-            ) : null}
-            <View style={styles.detailRow}>
-              <Text style={styles.detailIcon}>⏰</Text>
-              <Text style={styles.detailText}>
-                {formatRange(ongoing.meeting.start, ongoing.meeting.end)}
-              </Text>
-            </View>
-            {ongoing.meeting.room ? (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailIcon}>📍</Text>
-                <Text style={styles.detailText}>{ongoing.meeting.room}</Text>
-              </View>
-            ) : null}
+            <Text style={styles.mutedLine}>
+              ⏰ {formatRange(ongoing.meeting.start, ongoing.meeting.end)}
+              {ongoing.meeting.room ? `   📍 ${ongoing.meeting.room}` : ""}
+            </Text>
           </>
-        ) : (
-          <Text style={styles.emptyState}>No Ongoing Class</Text>
-        )}
-      </View>
-
-      <View style={[styles.card, styles.nextClassCard]}>
-        <View style={styles.nextClassBadge}>
-          <Text style={styles.nextClassBadgeText}>Next Class</Text>
-        </View>
-        {next ? (
+        ) : next ? (
           <>
-            <Text style={styles.courseCode}>
+            <Text style={styles.bigTitle}>
               {next.course.code}
               {next.course.section ? ` (${next.course.section})` : ""}
             </Text>
-            {next.course.title ? (
-              <Text style={styles.courseTitle}>{next.course.title}</Text>
-            ) : null}
-            <View style={styles.detailRow}>
-              <Text style={styles.detailIcon}>📆</Text>
-              <Text style={styles.detailText}>
-                {relativeDayLabel(next.daysAhead, next.day)}
-              </Text>
-            </View>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailIcon}>⏰</Text>
-              <Text style={styles.detailText}>
-                {formatRange(next.meeting.start, next.meeting.end)}
-              </Text>
-            </View>
+            <Text style={styles.mutedLine}>
+              📆 {relativeDayLabel(next.daysAhead, next.day)}   ⏰{" "}
+              {formatRange(next.meeting.start, next.meeting.end)}
+            </Text>
             {next.meeting.room ? (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailIcon}>📍</Text>
-                <Text style={styles.detailText}>{next.meeting.room}</Text>
-              </View>
+              <Text style={styles.mutedLine}>📍 {next.meeting.room}</Text>
             ) : null}
           </>
         ) : (
-          <Text style={styles.emptyState}>
+          <Text style={styles.emptyLine}>
             {courses.length === 0
-              ? "Add courses on the Courses tab to see your next class."
-              : "No upcoming classes in the next 7 days."}
+              ? "Add courses on the Courses tab."
+              : "No classes in the next 7 days."}
           </Text>
         )}
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Rest of Today</Text>
-        {todaysClasses.length === 0 ? (
-          <Text style={styles.emptyStateSmall}>Nothing scheduled today.</Text>
-        ) : (
-          todaysClasses.map((o, i) => (
-            <View key={`${o.course.id}-${i}`} style={styles.todayRow}>
-              <View style={[styles.todayDot, { backgroundColor: o.course.color }]} />
-              <Text style={styles.todayTime}>
-                {formatRange(o.meeting.start, o.meeting.end)}
+      {/* Progress + glance */}
+      <View style={styles.progressRow}>
+        <View style={[styles.card, styles.progressCard]}>
+          <Text style={styles.cardLabel}>Today&apos;s Progress</Text>
+          <View style={styles.progressInner}>
+            <ProgressRing pct={pct} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.progressStat}>
+                <Text style={styles.progressStrong}>{doneToday}</Text> completed
               </Text>
-              <Text style={styles.todayCode} numberOfLines={1}>
-                {o.course.code}
+              <Text style={styles.progressStat}>
+                <Text style={styles.progressStrong}>{dueTodayCount}</Text> remaining
               </Text>
             </View>
-          ))
+          </View>
+        </View>
+      </View>
+
+      <View style={[styles.card, styles.glanceCard]}>
+        <Text style={styles.cardLabel}>At a Glance</Text>
+        <View style={styles.glanceGrid}>
+          <Stat value={todaysClasses.length} label="Classes today" />
+          <Stat value={dueTodayCount} label="Due today" />
+          <Stat value={overdueCount} label="Overdue" danger />
+          <Stat value={holidaysThisWeek.length} label="Events this week" />
+          <Stat value={doneToday} label="Done today" />
+        </View>
+      </View>
+
+      {/* Quick add */}
+      <View style={styles.card}>
+        <Text style={styles.cardLabel}>Quick Add</Text>
+        <View style={styles.quickRow}>
+          <TextInput
+            style={styles.quickInput}
+            value={quick}
+            onChangeText={setQuick}
+            placeholder="Add a task for today…"
+            placeholderTextColor={t.muted}
+            onSubmitEditing={addQuick}
+            returnKeyType="done"
+          />
+          <Pressable style={styles.quickBtn} onPress={addQuick}>
+            <Text style={styles.quickBtnText}>Add</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Today */}
+      <View style={styles.card}>
+        <Text style={styles.cardLabel}>Today</Text>
+        {todaysClasses.length === 0 && todayTasks.length === 0 ? (
+          <Text style={styles.emptyLine}>Nothing scheduled today.</Text>
+        ) : (
+          <>
+            {todaysClasses.map((o, i) => (
+              <View key={`c-${i}`} style={styles.listRow}>
+                <View style={[styles.rowDot, { backgroundColor: o.course.color }]} />
+                <Text style={styles.rowTime}>{formatRange(o.meeting.start, o.meeting.end)}</Text>
+                <Text style={styles.rowText} numberOfLines={1}>
+                  {o.course.code}
+                </Text>
+              </View>
+            ))}
+            {todayTasks.map((t) => (
+              <Pressable
+                key={t.id}
+                style={styles.listRow}
+                onPress={() => updateTask(t.id, { done: !t.done })}
+              >
+                <View style={[styles.checkbox, t.done && styles.checkboxOn]}>
+                  {t.done ? <Text style={styles.checkTick}>✓</Text> : null}
+                </View>
+                <Text
+                  style={[styles.rowText, { flex: 1 }, t.done && styles.rowTextDone]}
+                  numberOfLines={1}
+                >
+                  {t.title}
+                </Text>
+              </Pressable>
+            ))}
+          </>
+        )}
+      </View>
+
+      {/* Next 7 days */}
+      <View style={styles.card}>
+        <Text style={styles.cardLabel}>Next 7 Days</Text>
+        {upcomingHolidays.length === 0 && upcomingTasks.length === 0 ? (
+          <Text style={styles.emptyLine}>Nothing coming up.</Text>
+        ) : (
+          <>
+            {upcomingHolidays.map((h) => (
+              <View key={`h-${h.date}-${h.name}`} style={styles.listRow}>
+                <View style={[styles.rowDot, { backgroundColor: colors.holidayRegular }]} />
+                <Text style={styles.rowTime}>{friendlyDue(h.date, now)}</Text>
+                <Text style={styles.rowText} numberOfLines={1}>
+                  {h.name}
+                </Text>
+              </View>
+            ))}
+            {upcomingTasks.map((t) => (
+              <Pressable
+                key={t.id}
+                style={styles.listRow}
+                onPress={() => updateTask(t.id, { done: !t.done })}
+              >
+                <View style={[styles.checkbox, t.done && styles.checkboxOn]}>
+                  {t.done ? <Text style={styles.checkTick}>✓</Text> : null}
+                </View>
+                <Text style={styles.rowTime}>{friendlyDue(t.due, now)}</Text>
+                <Text
+                  style={[styles.rowText, { flex: 1 }, t.done && styles.rowTextDone]}
+                  numberOfLines={1}
+                >
+                  {t.title}
+                </Text>
+              </Pressable>
+            ))}
+          </>
         )}
       </View>
 
       <Text style={styles.footnote}>
-        “Ongoing” and “Next” are computed from your Courses list and the current
-        time. AMIS integration (auto-importing your official schedule) is a later
-        roadmap item — see ARCHITECTURE.md.
+        Classes come from your Courses list; tasks and progress from the Tasks
+        tab. Philippine holidays are shown automatically.
       </Text>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.scheduleBg,
-  },
-  content: {
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  header: {
-    marginBottom: spacing.sm,
-  },
-  headerTitle: {
-    color: colors.scheduleText,
-    fontSize: 28,
-    fontWeight: "700",
-  },
-  headerSubtitle: {
-    color: colors.scheduleMuted,
-    fontSize: 14,
-    marginTop: spacing.xs,
-  },
-  holidayBanner: {
-    backgroundColor: colors.holidayRegular,
-    borderRadius: radius.md,
-    padding: spacing.md,
-  },
-  holidayBannerText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+  screen: { flex: 1, backgroundColor: t.bg },
+  content: { padding: spacing.lg, gap: spacing.md },
+  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+
+  greeting: { color: t.text, fontSize: 26, fontWeight: "700" },
+  date: { color: t.muted, fontSize: 14, marginTop: spacing.xs },
+
+  holidayBanner: { backgroundColor: colors.holidayRegular, borderRadius: radius.md, padding: spacing.md },
+  holidayBannerText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+
   card: {
-    backgroundColor: colors.scheduleCard,
-    borderColor: colors.scheduleCardBorder,
+    backgroundColor: t.card,
+    borderColor: t.cardBorder,
     borderWidth: 1,
     borderRadius: radius.lg,
     padding: spacing.lg,
   },
   cardLabel: {
-    color: colors.scheduleMuted,
+    color: t.muted,
     fontSize: 12,
     textTransform: "uppercase",
     letterSpacing: 1,
     marginBottom: spacing.md,
   },
-  emptyState: {
-    color: colors.scheduleText,
-    fontSize: 16,
-    textAlign: "center",
-    paddingVertical: spacing.lg,
-  },
-  emptyStateSmall: {
-    color: colors.scheduleMuted,
-    fontSize: 14,
-  },
-  nextClassCard: {
-    gap: spacing.sm,
-  },
-  nextClassBadge: {
+  badge: {
     alignSelf: "flex-start",
     backgroundColor: colors.danger,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    marginBottom: spacing.xs,
+    paddingVertical: 3,
+    marginBottom: spacing.sm,
   },
-  nextClassBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  courseCode: {
-    color: colors.scheduleText,
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: spacing.xs,
-  },
-  courseTitle: {
-    color: colors.scheduleMuted,
-    fontSize: 15,
-    marginBottom: spacing.xs,
-  },
-  detailRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  detailIcon: {
-    fontSize: 14,
-  },
-  detailText: {
-    color: colors.scheduleMuted,
-    fontSize: 15,
-  },
-  todayRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  todayDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  todayTime: {
-    color: colors.scheduleMuted,
-    fontSize: 13,
-    width: 130,
-  },
-  todayCode: {
-    color: colors.scheduleText,
-    fontSize: 14,
-    fontWeight: "600",
+  badgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
+  bigTitle: { color: t.text, fontSize: 20, fontWeight: "700", marginBottom: spacing.xs },
+  mutedLine: { color: t.muted, fontSize: 14, marginTop: 2 },
+  emptyLine: { color: t.muted, fontSize: 14 },
+
+  progressRow: { flexDirection: "row", gap: spacing.md },
+  progressCard: { flex: 1 },
+  progressInner: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
+  ringLabel: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  ringPct: { color: t.text, fontSize: 18, fontWeight: "700" },
+  progressStat: { color: t.muted, fontSize: 14, marginVertical: 2 },
+  progressStrong: { color: t.text, fontWeight: "700" },
+
+  glanceCard: {},
+  glanceGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
+  stat: { minWidth: 72 },
+  statValue: { color: t.text, fontSize: 22, fontWeight: "700" },
+  statDanger: { color: colors.danger },
+  statLabel: { color: t.muted, fontSize: 11, marginTop: 2 },
+
+  quickRow: { flexDirection: "row", gap: spacing.sm },
+  quickInput: {
     flex: 1,
+    borderWidth: 1,
+    borderColor: t.cardBorder,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    color: t.text,
+    fontSize: 14,
   },
-  footnote: {
-    color: colors.scheduleMuted,
-    fontSize: 12,
-    marginTop: spacing.md,
-    lineHeight: 18,
+  quickBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.lg,
+    justifyContent: "center",
   },
+  quickBtnText: { color: "#FFFFFF", fontWeight: "700" },
+
+  listRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs + 2 },
+  rowDot: { width: 8, height: 8, borderRadius: 4 },
+  rowTime: { color: t.muted, fontSize: 12, width: 96 },
+  rowText: { color: t.text, fontSize: 14 },
+  rowTextDone: { color: t.muted, textDecorationLine: "line-through" },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: t.muted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  checkTick: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
+
+  footnote: { color: t.muted, fontSize: 12, lineHeight: 18, marginTop: spacing.sm },
 });
