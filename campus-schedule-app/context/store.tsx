@@ -12,20 +12,15 @@ import {
 import { colors } from "@/constants/theme";
 
 // App-wide local data store: the student's courses and their canvas
-// notes. Everything lives on-device (AsyncStorage) — no account, no
+// items. Everything lives on-device (AsyncStorage) — no account, no
 // network — matching ARCHITECTURE.md's "start local-first" MVP call.
-// This is the single place both the Schedule, Calendar, Courses and
-// Notes screens read/write shared state.
 
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Sunday
 
 export type Meeting = {
-  /** Weekdays this block recurs on. */
   days: Weekday[];
-  /** 24h "HH:MM". */
-  start: string;
-  /** 24h "HH:MM". */
-  end: string;
+  start: string; // 24h "HH:MM"
+  end: string; // 24h "HH:MM"
   room?: string;
 };
 
@@ -39,13 +34,54 @@ export type Course = {
   meetings: Meeting[];
 };
 
-export type Note = {
-  id: string;
-  x: number;
-  y: number;
-  text: string;
+// --- Canvas (Notes tab) --------------------------------------------------
+
+export type Stroke = {
   color: string;
+  width: number;
+  /** Points in drawing-surface coordinates. */
+  points: { x: number; y: number }[];
 };
+
+export type TodoEntry = { id: string; text: string; done: boolean };
+
+type CanvasBase = { id: string; x: number; y: number };
+
+export type CanvasItem =
+  | (CanvasBase & { kind: "text"; text: string; color: string })
+  | (CanvasBase & {
+      kind: "todo";
+      title: string;
+      color: string;
+      entries: TodoEntry[];
+    })
+  | (CanvasBase & {
+      kind: "image";
+      uri: string;
+      width: number;
+      height: number;
+    })
+  | (CanvasBase & {
+      kind: "drawing";
+      color: string;
+      strokes: Stroke[];
+      width: number;
+      height: number;
+    })
+  | (CanvasBase & {
+      kind: "document";
+      uri: string;
+      name: string;
+      mimeType?: string;
+      size?: number;
+    });
+
+export type CanvasItemKind = CanvasItem["kind"];
+
+type DistributiveOmit<T, K extends keyof any> = T extends unknown
+  ? Omit<T, K>
+  : never;
+export type NewCanvasItem = DistributiveOmit<CanvasItem, "id">;
 
 type StoreShape = {
   ready: boolean;
@@ -55,14 +91,14 @@ type StoreShape = {
   updateCourse: (id: string, patch: Partial<Omit<Course, "id">>) => void;
   removeCourse: (id: string) => void;
 
-  notes: Note[];
-  addNote: (note: Omit<Note, "id">) => void;
-  updateNote: (id: string, patch: Partial<Omit<Note, "id">>) => void;
-  removeNote: (id: string) => void;
+  items: CanvasItem[];
+  addItem: (item: NewCanvasItem) => void;
+  updateItem: (id: string, patch: Partial<CanvasItem>) => void;
+  removeItem: (id: string) => void;
 };
 
 const COURSES_KEY = "campus-schedule:courses:v1";
-const NOTES_KEY = "campus-schedule:notes:v1";
+const CANVAS_KEY = "campus-schedule:canvas:v1";
 
 const SEED_COURSES: Course[] = [
   {
@@ -81,30 +117,31 @@ const SEED_COURSES: Course[] = [
 const StoreContext = createContext<StoreShape | null>(null);
 
 function uid(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  return `${prefix}-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 7)}`;
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const [items, setItems] = useState<CanvasItem[]>([]);
 
-  // Load once on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [rawCourses, rawNotes] = await Promise.all([
+        const [rawCourses, rawCanvas] = await Promise.all([
           AsyncStorage.getItem(COURSES_KEY),
-          AsyncStorage.getItem(NOTES_KEY),
+          AsyncStorage.getItem(CANVAS_KEY),
         ]);
         if (cancelled) return;
         setCourses(rawCourses ? (JSON.parse(rawCourses) as Course[]) : SEED_COURSES);
-        setNotes(rawNotes ? (JSON.parse(rawNotes) as Note[]) : []);
+        setItems(rawCanvas ? (JSON.parse(rawCanvas) as CanvasItem[]) : []);
       } catch {
         if (!cancelled) {
           setCourses(SEED_COURSES);
-          setNotes([]);
+          setItems([]);
         }
       } finally {
         if (!cancelled) setReady(true);
@@ -115,7 +152,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Persist on change (after the initial load has populated state).
   const persisted = useRef(false);
   useEffect(() => {
     if (!ready) return;
@@ -124,34 +160,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     AsyncStorage.setItem(COURSES_KEY, JSON.stringify(courses)).catch(() => {});
-    AsyncStorage.setItem(NOTES_KEY, JSON.stringify(notes)).catch(() => {});
-  }, [ready, courses, notes]);
+    AsyncStorage.setItem(CANVAS_KEY, JSON.stringify(items)).catch(() => {});
+  }, [ready, courses, items]);
 
   const addCourse = useCallback((course: Omit<Course, "id">) => {
     setCourses((prev) => [...prev, { ...course, id: uid("course") }]);
   }, []);
-
   const updateCourse = useCallback(
     (id: string, patch: Partial<Omit<Course, "id">>) => {
       setCourses((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     },
     []
   );
-
   const removeCourse = useCallback((id: string) => {
     setCourses((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
-  const addNote = useCallback((note: Omit<Note, "id">) => {
-    setNotes((prev) => [...prev, { ...note, id: uid("note") }]);
+  const addItem = useCallback((item: NewCanvasItem) => {
+    setItems((prev) => [...prev, { ...(item as CanvasItem), id: uid("item") }]);
   }, []);
 
-  const updateNote = useCallback((id: string, patch: Partial<Omit<Note, "id">>) => {
-    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+  const updateItem = useCallback((id: string, patch: Partial<CanvasItem>) => {
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? ({ ...it, ...patch } as CanvasItem) : it))
+    );
   }, []);
 
-  const removeNote = useCallback((id: string) => {
-    setNotes((prev) => prev.filter((n) => n.id !== id));
+  const removeItem = useCallback((id: string) => {
+    setItems((prev) => prev.filter((it) => it.id !== id));
   }, []);
 
   const value = useMemo<StoreShape>(
@@ -161,10 +197,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addCourse,
       updateCourse,
       removeCourse,
-      notes,
-      addNote,
-      updateNote,
-      removeNote,
+      items,
+      addItem,
+      updateItem,
+      removeItem,
     }),
     [
       ready,
@@ -172,10 +208,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addCourse,
       updateCourse,
       removeCourse,
-      notes,
-      addNote,
-      updateNote,
-      removeNote,
+      items,
+      addItem,
+      updateItem,
+      removeItem,
     ]
   );
 
@@ -193,7 +229,7 @@ export function useCourses() {
   return { ready, courses, addCourse, updateCourse, removeCourse };
 }
 
-export function useNotes() {
-  const { ready, notes, addNote, updateNote, removeNote } = useStore();
-  return { ready, notes, addNote, updateNote, removeNote };
+export function useCanvas() {
+  const { ready, items, addItem, updateItem, removeItem } = useStore();
+  return { ready, items, addItem, updateItem, removeItem };
 }

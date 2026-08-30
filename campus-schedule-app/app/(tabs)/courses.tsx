@@ -16,6 +16,14 @@ import { colors, radius, spacing } from "@/constants/theme";
 import type { Course, Meeting, Weekday } from "@/context/store";
 import { useCourses } from "@/context/store";
 import { formatRange, parseTime, WEEKDAY_SHORT } from "@/lib/schedule";
+import {
+  HUES,
+  hslToHex,
+  hueSwatch,
+  isLight,
+  LIGHTNESS_RAMP,
+  normalizeHex,
+} from "@/lib/color";
 
 const DAY_CHIPS: { value: Weekday; label: string }[] = [
   { value: 1, label: "M" },
@@ -29,6 +37,111 @@ const DAY_CHIPS: { value: Weekday; label: string }[] = [
 
 function emptyMeeting(): Meeting {
   return { days: [], start: "", end: "", room: "" };
+}
+
+const HUE_SAT = 68;
+
+// Color picker: quick presets + a full hue wheel row + a lightness ramp
+// for the chosen hue + freeform hex entry. Far more than the original 8.
+function ColorField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (hex: string) => void;
+}) {
+  const [hue, setHue] = useState<number>(HUES[0]);
+  const [hexText, setHexText] = useState<string>(value);
+
+  const commitHex = (raw: string) => {
+    setHexText(raw);
+    const norm = normalizeHex(raw);
+    if (norm) onChange(norm);
+  };
+
+  return (
+    <View>
+      <Text style={styles.fieldLabel}>Label color</Text>
+
+      <View style={styles.colorPreviewRow}>
+        <View style={[styles.colorPreview, { backgroundColor: value }]}>
+          <Text
+            style={[
+              styles.colorPreviewText,
+              { color: isLight(value) ? "#1A1A1A" : "#FFFFFF" },
+            ]}
+          >
+            {value}
+          </Text>
+        </View>
+        <TextInput
+          style={[styles.input, styles.hexInput]}
+          value={hexText}
+          onChangeText={commitHex}
+          onBlur={() => setHexText(value)}
+          placeholder="#4F8CFF"
+          placeholderTextColor={colors.lightMuted}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={7}
+        />
+      </View>
+
+      <Text style={styles.smallLabel}>Presets</Text>
+      <View style={styles.swatchRow}>
+        {colors.courseColors.map((c) => (
+          <Pressable
+            key={c}
+            onPress={() => {
+              onChange(c);
+              setHexText(c);
+            }}
+            style={[styles.swatch, { backgroundColor: c }, value === c && styles.swatchSelected]}
+          />
+        ))}
+      </View>
+
+      <Text style={styles.smallLabel}>Hue</Text>
+      <View style={styles.swatchRow}>
+        {HUES.map((h) => {
+          const sw = hueSwatch(h);
+          return (
+            <Pressable
+              key={h}
+              onPress={() => {
+                setHue(h);
+                const hex = hslToHex(h, HUE_SAT, 52);
+                onChange(hex);
+                setHexText(hex);
+              }}
+              style={[styles.swatch, { backgroundColor: sw }, hue === h && styles.swatchSelected]}
+            />
+          );
+        })}
+      </View>
+
+      <Text style={styles.smallLabel}>Shade</Text>
+      <View style={styles.swatchRow}>
+        {LIGHTNESS_RAMP.map((l) => {
+          const hex = hslToHex(hue, HUE_SAT, l);
+          return (
+            <Pressable
+              key={l}
+              onPress={() => {
+                onChange(hex);
+                setHexText(hex);
+              }}
+              style={[
+                styles.swatch,
+                { backgroundColor: hex },
+                normalizeHex(value) === hex && styles.swatchSelected,
+              ]}
+            />
+          );
+        })}
+      </View>
+    </View>
+  );
 }
 
 function meetingSummary(m: Meeting): string {
@@ -176,20 +289,7 @@ function CourseForm({
             </View>
           </View>
 
-          <Text style={styles.fieldLabel}>Label color</Text>
-          <View style={styles.swatchRow}>
-            {colors.courseColors.map((c) => (
-              <Pressable
-                key={c}
-                onPress={() => setColor(c)}
-                style={[
-                  styles.swatch,
-                  { backgroundColor: c },
-                  color === c && styles.swatchSelected,
-                ]}
-              />
-            ))}
-          </View>
+          <ColorField value={color} onChange={setColor} />
 
           <View style={styles.meetingsHeader}>
             <Text style={styles.fieldLabel}>Meeting times</Text>
@@ -484,9 +584,19 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", gap: spacing.sm },
   rowItem: { flex: 1 },
 
-  swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.xs },
   swatch: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: "transparent" },
   swatchSelected: { borderColor: colors.lightText },
+  colorPreviewRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
+  colorPreview: {
+    width: 96,
+    height: 40,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  colorPreviewText: { fontSize: 11, fontWeight: "700" },
+  hexInput: { flex: 1 },
 
   meetingsHeader: {
     flexDirection: "row",

@@ -57,13 +57,13 @@ type DayCell = {
   weekday: Weekday;
   isToday: boolean;
   holidays: Holiday[];
-  hasClass: boolean;
+  classColors: string[];
 };
 
 function buildMonth(
   year: number,
   month: number, // 0-indexed
-  hasClassByWeekday: boolean[]
+  classColorsByWeekday: string[][]
 ): (DayCell | null)[] {
   const first = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -84,7 +84,7 @@ function buildMonth(
       weekday,
       isToday: iso === todayIso,
       holidays: holidays.get(iso) ?? [],
-      hasClass: hasClassByWeekday[weekday],
+      classColors: classColorsByWeekday[weekday],
     });
   }
   while (cells.length % 7 !== 0) cells.push(null);
@@ -98,15 +98,21 @@ function MonthCalendar() {
   const [month, setMonth] = useState(today.getMonth());
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
 
-  const hasClassByWeekday = useMemo(() => {
-    const arr: boolean[] = [];
-    for (let w = 0; w < 7; w++) arr.push(occurrencesOnDay(courses, w as Weekday).length > 0);
+  const classColorsByWeekday = useMemo(() => {
+    const arr: string[][] = [];
+    for (let w = 0; w < 7; w++) {
+      const seen: string[] = [];
+      for (const o of occurrencesOnDay(courses, w as Weekday)) {
+        if (!seen.includes(o.course.color)) seen.push(o.course.color);
+      }
+      arr.push(seen);
+    }
     return arr;
   }, [courses]);
 
   const cells = useMemo(
-    () => buildMonth(year, month, hasClassByWeekday),
-    [year, month, hasClassByWeekday]
+    () => buildMonth(year, month, classColorsByWeekday),
+    [year, month, classColorsByWeekday]
   );
 
   const monthHolidays = useMemo(
@@ -198,9 +204,9 @@ function MonthCalendar() {
                         ]}
                       />
                     )}
-                    {cell.hasClass && (
-                      <View style={[styles.marker, { backgroundColor: colors.accent }]} />
-                    )}
+                    {cell.classColors.slice(0, 3).map((c, ci) => (
+                      <View key={ci} style={[styles.marker, { backgroundColor: c }]} />
+                    ))}
                   </View>
                 </View>
               </Pressable>
@@ -212,7 +218,7 @@ function MonthCalendar() {
       <View style={styles.legendRow}>
         <Legend color={colors.holidayRegular} label="Regular holiday" />
         <Legend color={colors.holidaySpecial} label="Special day" />
-        <Legend color={colors.accent} label="Has class" />
+        <Legend color={colors.accent} label="Class (course color)" />
       </View>
 
       {selectedCell ? (
