@@ -29,7 +29,9 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
     },
     "plugins": [
       "expo-router",
@@ -40,6 +42,9 @@
         }
       ]
     ],
+    "experiments": {
+      "baseUrl": "/Scheduling-app"
+    },
     "extra": {
       "router": {},
       "eas": {
