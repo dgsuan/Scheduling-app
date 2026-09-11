@@ -1,7 +1,7 @@
 import { CalendarClock, Plus, StickyNote, X } from "lucide-react-native";
 import { Pressable, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
-import Animated, { Keyframe } from "react-native-reanimated";
 
+import { PopIn } from "@/components/PopIn";
 import { TaskCheckbox } from "@/components/TaskCheckbox";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -14,11 +14,6 @@ import { cn } from "@/lib/utils";
 
 // Compact card listing one day's classes, events, tasks and notes.
 // Events/tasks/notes open the editor; tasks can be ticked in place.
-
-const enter = new Keyframe({
-  0: { opacity: 0, transform: [{ translateY: -4 }, { scale: 0.97 }] },
-  100: { opacity: 1, transform: [{ translateY: 0 }, { scale: 1 }] },
-}).duration(150);
 
 export type EditableAgendaItem = Extract<AgendaItem, { kind: "task" | "event" | "note" }>;
 
@@ -80,13 +75,14 @@ export function CalendarDayPopover({
 }) {
   const now = new Date();
   return (
-    // Reanimated's Animated.View ignores className, so it only animates;
-    // the card styling lives on the inner View.
-    <Animated.View ref={popoverRef} entering={enter} style={style}>
+    // PopIn springs the card in; styling lives on the inner View (animated
+    // views ignore className).
+    <PopIn style={style} from={0.95} offsetY={-6}>
     <View
+      ref={popoverRef}
       accessibilityRole="summary"
       accessibilityLabel={`Agenda for ${formatDayLong(iso)}`}
-      className="bg-popover border-border rounded-xl border p-3 shadow-lg shadow-black/20"
+      className="bg-popover border-border rounded-xl border p-3 shadow-xl shadow-black/15"
     >
       <View className="mb-1 flex-row items-center justify-between pl-2">
         <Text className="text-sm font-semibold">{formatDayLong(iso)}</Text>
@@ -183,6 +179,6 @@ export function CalendarDayPopover({
         <Text className="text-primary">Add</Text>
       </Button>
     </View>
-    </Animated.View>
+    </PopIn>
   );
 }

@@ -1,12 +1,5 @@
 import { useMemo } from "react";
-import {
-  Pressable,
-  StyleProp,
-  StyleSheet,
-  Text,
-  View,
-  ViewStyle,
-} from "react-native";
+import { Pressable, StyleProp, StyleSheet, Text, ViewStyle } from "react-native";
 
 import { radius, spacing, type Palette } from "@/constants/theme";
 import { useTheme } from "@/context/theme";

@@ -1,103 +1,29 @@
 import { Tabs } from "expo-router";
-import { useEffect } from "react";
-import { Text } from "react-native";
-import Animated, {
-  ReduceMotion,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from "react-native-reanimated";
 
-import { useTheme } from "@/context/theme";
+import { AppTabBar } from "@/components/AppTabBar";
+import { useBreakpoint } from "@/lib/useBreakpoint";
 
-// Tab bar order mirrors the concept mockups: the "Schedule" home screen
-// is the default (first) tab. Emoji stay as the app's icon language; the
-// active one gets a soft pill and a small spring.
-function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
-  const scale = useSharedValue(focused ? 1.08 : 1);
-
-  useEffect(() => {
-    scale.value = withSpring(focused ? 1.08 : 1, {
-      damping: 12,
-      stiffness: 260,
-      reduceMotion: ReduceMotion.System,
-    });
-  }, [focused, scale]);
-
-  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
-  return (
-    <Animated.View
-      style={[
-        {
-          paddingHorizontal: 12,
-          paddingVertical: 2,
-          borderRadius: 999,
-          backgroundColor: focused ? "rgba(79,140,255,0.14)" : "transparent",
-        },
-        style,
-      ]}
-    >
-      <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.55 }}>{emoji}</Text>
-    </Animated.View>
-  );
-}
-
+// Tab order: the Schedule home screen is the default (first) tab. The bar
+// itself (sidebar on wide screens, bottom bar on narrow) is AppTabBar.
 export default function TabsLayout() {
-  const t = useTheme();
+  const { wide } = useBreakpoint();
   return (
     <Tabs
+      tabBar={(props) => <AppTabBar {...props} vertical={wide} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: t.accent,
-        tabBarInactiveTintColor: t.muted,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
-        tabBarStyle: { backgroundColor: t.card, borderTopColor: t.border },
-        sceneStyle: { backgroundColor: t.bg },
+        tabBarPosition: wide ? "left" : "bottom",
+        animation: "fade",
+        // Let the ambient time-of-day background show through.
+        sceneStyle: { backgroundColor: "transparent" },
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Schedule",
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🗓️" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="tasks"
-        options={{
-          title: "Tasks",
-          tabBarIcon: ({ focused }) => <TabIcon emoji="✅" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="calendar"
-        options={{
-          title: "Calendar",
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📅" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="courses"
-        options={{
-          title: "Courses",
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📚" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="notes"
-        options={{
-          title: "Notes",
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🗒️" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="import"
-        options={{
-          title: "Import",
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📥" focused={focused} />,
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: "Schedule" }} />
+      <Tabs.Screen name="tasks" options={{ title: "Tasks" }} />
+      <Tabs.Screen name="calendar" options={{ title: "Calendar" }} />
+      <Tabs.Screen name="courses" options={{ title: "Courses" }} />
+      <Tabs.Screen name="notes" options={{ title: "Notes" }} />
+      <Tabs.Screen name="import" options={{ title: "Import" }} />
     </Tabs>
   );
 }

@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Moon, Sun } from "lucide-react-native";
+import { colorScheme as nativewindScheme, vars } from "nativewind";
 import {
   createContext,
   useContext,
@@ -6,18 +8,23 @@ import {
   useMemo,
   useState,
 } from "react";
-import { colorScheme as nativewindScheme } from "nativewind";
-import { Appearance, Pressable, StyleSheet, Text } from "react-native";
+import { AppState, Appearance, Platform, View } from "react-native";
 
-import { palettes, spacing, type Palette, type ThemeScheme } from "@/constants/theme";
+import { AmbientBackground } from "@/components/AmbientBackground";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import { buildTheme, type Palette, type ThemeScheme } from "@/constants/theme";
+import { getTimeOfDay, msUntilNextPeriod, type TimeOfDay } from "@/lib/timeOfDay";
 
-// Global light/dark theme. Defaults to the OS setting, then remembers the
-// user's explicit choice on-device.
+// Global theme: light/dark (OS default, then the user's saved choice) plus
+// a time-of-day "atmosphere" that re-tints the same tokens. One timer,
+// scheduled for the next period boundary — nothing ticks in between.
 
 const KEY = "campus-schedule:theme:v1";
 
 type ThemeCtx = {
   scheme: ThemeScheme;
+  tod: TimeOfDay;
   palette: Palette;
   toggle: () => void;
   setScheme: (s: ThemeScheme) => void;
@@ -25,11 +32,33 @@ type ThemeCtx = {
 
 const ThemeContext = createContext<ThemeCtx | null>(null);
 
+function useTimeOfDayState(): TimeOfDay {
+  const [tod, setTod] = useState<TimeOfDay>(() => getTimeOfDay());
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const sync = () => {
+      clearTimeout(timer);
+      setTod(getTimeOfDay());
+      // +1s so we land safely inside the new period.
+      timer = setTimeout(sync, msUntilNextPeriod() + 1000);
+    };
+    sync();
+    // Timers are throttled while backgrounded; re-check on return.
+    const sub = AppState.addEventListener("change", (s) => s === "active" && sync());
+    return () => {
+      clearTimeout(timer);
+      sub.remove();
+    };
+  }, []);
+  return tod;
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const system = Appearance.getColorScheme();
   const [scheme, setSchemeState] = useState<ThemeScheme>(
     system === "dark" ? "dark" : "light"
   );
+  const tod = useTimeOfDayState();
 
   useEffect(() => {
     let cancelled = false;
@@ -43,11 +72,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Keep NativeWind's `dark:` variants and CSS variables (global.css) in
-  // step with this provider, so Reusables components follow the toggle.
+  const theme = useMemo(() => buildTheme(scheme, tod), [scheme, tod]);
+
+  // Keep NativeWind's `dark:` variants in step, and on web publish the
+  // tokens on <html> so portalled dialogs/popovers inherit them too.
   useEffect(() => {
     nativewindScheme.set(scheme);
-  }, [scheme]);
+    if (Platform.OS !== "web") return;
+    const root = document.documentElement;
+    for (const [k, v] of Object.entries(theme.tokens)) root.style.setProperty(k, v);
+    root.dataset.tod = tod;
+    root.style.colorScheme = scheme;
+    document.body.style.backgroundColor = theme.palette.bg;
+  }, [scheme, tod, theme]);
 
   const setScheme = (s: ThemeScheme) => {
     setSchemeState(s);
@@ -57,14 +94,29 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<ThemeCtx>(
     () => ({
       scheme,
-      palette: palettes[scheme],
+      tod,
+      palette: theme.palette,
       toggle: () => setScheme(scheme === "dark" ? "light" : "dark"),
       setScheme,
     }),
-    [scheme]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scheme, tod, theme]
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>
+      <View
+        className="web:transition-colors web:duration-1000"
+        style={[
+          { flex: 1, backgroundColor: theme.palette.bg },
+          Platform.OS !== "web" && vars(theme.tokens),
+        ]}
+      >
+        <AmbientBackground color={theme.wash.color} opacity={theme.wash.opacity} />
+        {children}
+      </View>
+    </ThemeContext.Provider>
+  );
 }
 
 /** Returns the active palette (also carries `scheme`). */
@@ -74,40 +126,29 @@ export function useTheme(): Palette {
   return ctx.palette;
 }
 
+export function useTimeOfDay(): TimeOfDay {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("useTimeOfDay must be used inside <ThemeProvider>");
+  return ctx.tod;
+}
+
 export function useThemeControls() {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error("useThemeControls must be used inside <ThemeProvider>");
   return { scheme: ctx.scheme, toggle: ctx.toggle, setScheme: ctx.setScheme };
 }
 
-/** Small round sun/moon button — drop into any screen header. */
+/** Quiet sun/moon button. */
 export function ThemeToggle() {
   const { scheme, toggle } = useThemeControls();
-  const palette = useTheme();
   return (
-    <Pressable
+    <Button
+      variant="ghost"
+      size="icon"
       onPress={toggle}
-      hitSlop={8}
-      accessibilityRole="button"
       accessibilityLabel={scheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-      style={[
-        styles.btn,
-        { backgroundColor: palette.surface, borderColor: palette.border },
-      ]}
     >
-      <Text style={styles.icon}>{scheme === "dark" ? "☀️" : "🌙"}</Text>
-    </Pressable>
+      <Icon as={scheme === "dark" ? Sun : Moon} size={17} className="text-muted-foreground" />
+    </Button>
   );
 }
-
-const styles = StyleSheet.create({
-  btn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  icon: { fontSize: 16, lineHeight: 20, marginTop: spacing.xs / 2 },
-});

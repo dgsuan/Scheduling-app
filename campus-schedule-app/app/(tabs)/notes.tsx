@@ -32,7 +32,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 
 import { colors, radius, spacing, type Palette } from "@/constants/theme";
-import { ThemeToggle, useTheme } from "@/context/theme";
+import { useTheme } from "@/context/theme";
 import {
   GENERAL_CANVAS,
   useCanvas,
@@ -45,7 +45,24 @@ import {
 import { strokePath, strokesToDrawing, type DrawingShape } from "@/lib/drawing";
 import { ColorPicker } from "@/components/ColorPicker";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PopIn } from "@/components/PopIn";
+import { ScreenHeader } from "@/components/ScreenHeader";
+import { Icon } from "@/components/ui/icon";
+import { Text as UIText } from "@/components/ui/text";
 import { formatShortDate } from "@/lib/calendar";
+import { useBreakpoint } from "@/lib/useBreakpoint";
+import { cn } from "@/lib/utils";
+import {
+  Folder as FolderIcon,
+  Image as ImageIcon,
+  ListTodo,
+  Palette as PaletteIcon,
+  Paperclip,
+  PenLine,
+  Type as TypeIcon,
+  X,
+  type LucideIcon,
+} from "lucide-react-native";
 
 // Freeform "open canvas" notes (Miro / Apple-Freeform style). One shared
 // canvas plus a canvas per enrolled course, chosen from the tab strip.
@@ -114,17 +131,23 @@ function DotGrid({ color }: { color: string }) {
 function Draggable({
   item,
   disabled,
+  isNew,
   onMoveEnd,
   children,
 }: {
   item: CanvasItem;
   disabled: boolean;
+  /** Created after the canvas opened → spring in instead of popping. */
+  isNew?: boolean;
   onMoveEnd: (x: number, y: number) => void;
   children: React.ReactNode;
 }) {
   const tx = useRef(new Animated.Value(item.x)).current;
   const ty = useRef(new Animated.Value(item.y)).current;
   const startPos = useRef({ x: item.x, y: item.y });
+  // Picked-up feel while dragging: a tiny scale and a raised z-order.
+  const lift = useRef(new Animated.Value(0)).current;
+  const [lifted, setLifted] = useState(false);
 
   useEffect(() => {
     startPos.current = { x: item.x, y: item.y };
@@ -141,6 +164,10 @@ function Draggable({
         .enabled(!disabled)
         .activeOffsetX([-6, 6])
         .activeOffsetY([-6, 6])
+        .onStart(() => {
+          setLifted(true);
+          Animated.spring(lift, { toValue: 1, useNativeDriver: false, speed: 28, bounciness: 6 }).start();
+        })
         .onUpdate((e) => {
           tx.setValue(startPos.current.x + e.translationX);
           ty.setValue(startPos.current.y + e.translationY);
@@ -152,16 +179,30 @@ function Draggable({
           tx.setValue(nx);
           ty.setValue(ny);
           onMoveEnd(nx, ny);
+        })
+        .onFinalize(() => {
+          setLifted(false);
+          Animated.spring(lift, { toValue: 0, useNativeDriver: false, speed: 28, bounciness: 4 }).start();
         }),
-    [disabled, onMoveEnd, tx, ty]
+    [disabled, onMoveEnd, tx, ty, lift]
   );
 
   return (
     <GestureDetector gesture={pan}>
       <Animated.View
-        style={[cardStyles.itemWrap, { transform: [{ translateX: tx }, { translateY: ty }] }]}
+        style={[
+          cardStyles.itemWrap,
+          {
+            zIndex: lifted ? 20 : 1,
+            transform: [
+              { translateX: tx },
+              { translateY: ty },
+              { scale: lift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] }) },
+            ],
+          },
+        ]}
       >
-        {children}
+        {isNew ? <PopIn>{children}</PopIn> : children}
       </Animated.View>
     </GestureDetector>
   );
@@ -178,14 +219,14 @@ function ItemBar({
     <View style={cardStyles.itemBar}>
       {onCycleColor ? (
         <Pressable onPress={onCycleColor} hitSlop={6} style={cardStyles.barBtn}>
-          <Text style={cardStyles.barIcon}>🎨</Text>
+          <PaletteIcon size={13} color="rgba(0,0,0,0.55)" />
         </Pressable>
       ) : (
         <View style={cardStyles.barBtn} />
       )}
       <View style={cardStyles.barGrip} />
       <Pressable onPress={onDelete} hitSlop={6} style={cardStyles.barBtn}>
-        <Text style={cardStyles.barIcon}>✕</Text>
+        <X size={13} color="rgba(0,0,0,0.55)" />
       </Pressable>
     </View>
   );
@@ -217,7 +258,7 @@ function TextCard({
       />
       {item.date ? (
         <Text style={cardStyles.noteDate}>
-          📅 {formatShortDate(item.date)}
+          {formatShortDate(item.date)}
           {item.endDate ? ` – ${formatShortDate(item.endDate)}` : ""}
         </Text>
       ) : null}
@@ -375,11 +416,11 @@ function FolderCard({
           accessibilityRole="button"
           accessibilityLabel={`Delete folder ${item.name || ""}`.trim()}
         >
-          <Text style={cardStyles.barIcon}>✕</Text>
+          <X size={13} color="rgba(0,0,0,0.55)" />
         </Pressable>
       </View>
       <Pressable onPress={onOpen} style={cardStyles.folderOpen}>
-        <Text style={cardStyles.folderIcon}>📁</Text>
+        <FolderIcon size={34} color="#B7862C" fill="#F1C56A" strokeWidth={1.5} />
         <Text style={cardStyles.folderCount}>
           {n} item{n === 1 ? "" : "s"}
         </Text>
@@ -710,6 +751,7 @@ export default function NotesScreen() {
   const { courses } = useCourses();
   const t = useTheme();
   const styles = useMemo(() => makeStyles(t), [t]);
+  const { desktop } = useBreakpoint();
 
   const tabs = [
     { id: GENERAL_CANVAS, label: "General", color: colors.accent },
@@ -740,32 +782,38 @@ export default function NotesScreen() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>Notes</Text>
-          <ThemeToggle />
-        </View>
-        <Text style={styles.subtitle}>An open canvas — put anything, anywhere.</Text>
+      <View style={[styles.header, desktop && { paddingHorizontal: 40, paddingTop: 40 }]}>
+        <ScreenHeader title="Notes" subtitle="An open canvas — put anything, anywhere." />
       </View>
 
+      {/* Notebook switcher: quiet underline tabs rather than loud pills. */}
       <View style={styles.tabBarWrap}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabBar}
+          contentContainerStyle={[styles.tabBar, desktop && { paddingHorizontal: 28 }]}
         >
-          {tabs.map((tab) => (
-            <Pressable
-              key={tab.id}
-              onPress={() => selectTab(tab.id)}
-              style={[styles.tab, active === tab.id && styles.tabActive]}
-            >
-              <View style={[styles.tabDot, { backgroundColor: tab.color }]} />
-              <Text style={[styles.tabText, active === tab.id && styles.tabTextActive]}>
-                {tab.label}
-              </Text>
-            </Pressable>
-          ))}
+          {tabs.map((tab) => {
+            const on = active === tab.id;
+            return (
+              <Pressable
+                key={tab.id}
+                onPress={() => selectTab(tab.id)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                className={cn(
+                  "flex-row items-center gap-2 rounded-md px-3 pb-3 pt-2 web:transition-colors web:duration-150",
+                  !on && "web:hover:bg-accent/60"
+                )}
+              >
+                <View className="size-2 rounded-full" style={{ backgroundColor: tab.color }} />
+                <UIText className={cn("text-sm", on ? "text-foreground font-semibold" : "text-muted-foreground font-medium")}>
+                  {tab.label}
+                </UIText>
+                {on ? <View className="bg-primary absolute bottom-0 left-3 right-3 h-0.5 rounded-full" /> : null}
+              </Pressable>
+            );
+          })}
         </ScrollView>
       </View>
 
@@ -803,6 +851,7 @@ function CanvasView({
   onOpenFolder: (f: { id: string; name: string }) => void;
 }) {
   const {
+    ready,
     items,
     drawings,
     addItem,
@@ -822,6 +871,9 @@ function CanvasView({
   const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
 
   const drawRef = useRef<DrawCaptureHandle>(null);
+  // Items present when the canvas opened don't animate; later ones do.
+  const initialIds = useRef<Set<string> | null>(null);
+  if (initialIds.current === null && ready) initialIds.current = new Set(items.map((it) => it.id));
   const scroll = useRef({ x: 0, y: 0 });
   const viewport = useRef({ w: 0, h: 0 });
 
@@ -922,26 +974,6 @@ function CanvasView({
 
   return (
     <View style={styles.canvasArea}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.toolbar}
-        contentContainerStyle={styles.toolbarContent}
-      >
-        <ToolButton emoji="📝" label="Text" onPress={addText} styles={styles} />
-        <ToolButton emoji="✅" label="To-do" onPress={addTodo} styles={styles} />
-        <ToolButton emoji="🖼️" label="Image" onPress={addImage} styles={styles} />
-        <ToolButton emoji="📎" label="Doc" onPress={addDocument} styles={styles} />
-        <ToolButton emoji="📁" label="Folder" onPress={addFolder} styles={styles} />
-        <ToolButton
-          emoji="✏️"
-          label={drawing ? "Drawing…" : "Draw"}
-          active={drawing}
-          onPress={toggleDraw}
-          styles={styles}
-        />
-      </ScrollView>
-
       <GHScrollView
         style={styles.canvasScroll}
         horizontal
@@ -981,6 +1013,7 @@ function CanvasView({
                 key={item.id}
                 item={item}
                 disabled={drawing}
+                isNew={!!initialIds.current && !initialIds.current.has(item.id)}
                 onMoveEnd={(x, y) => handleItemDrop(item, x, y)}
               >
                 {item.kind === "text" ? (
@@ -1026,7 +1059,23 @@ function CanvasView({
         </GHScrollView>
       </GHScrollView>
 
+      {/* Floating tool dock — out of the way of the page, close to the canvas. */}
+      {!drawing && !selectedDrawing ? (
+        <View pointerEvents="box-none" style={styles.toolDock}>
+          <View className="bg-card border-border flex-row items-center gap-0.5 rounded-xl border p-1 shadow-lg shadow-black/10">
+            <ToolButton icon={TypeIcon} label="Text" onPress={addText} />
+            <ToolButton icon={ListTodo} label="To-do" onPress={addTodo} />
+            <ToolButton icon={ImageIcon} label="Image" onPress={addImage} />
+            <ToolButton icon={Paperclip} label="File" onPress={addDocument} />
+            <ToolButton icon={FolderIcon} label="Folder" onPress={addFolder} />
+            <View className="bg-border mx-1 h-7 w-px" />
+            <ToolButton icon={PenLine} label="Draw" onPress={toggleDraw} />
+          </View>
+        </View>
+      ) : null}
+
       {drawing ? (
+        <View pointerEvents="box-none" style={styles.toolDock}>
         <View style={styles.drawBar}>
           <View style={styles.drawBarRow}>
             {INK_COLORS.map((c) => (
@@ -1076,9 +1125,11 @@ function CanvasView({
             drawing.
           </Text>
         </View>
+        </View>
       ) : null}
 
       {!drawing && selectedDrawing ? (
+        <View pointerEvents="box-none" style={styles.toolDock}>
         <View style={styles.drawBar}>
           <Text style={styles.drawHint}>
             Drag to move · drag a corner handle (or pinch) to resize
@@ -1092,7 +1143,7 @@ function CanvasView({
               }}
             >
               <Text style={[styles.drawActionText, styles.drawDeleteText]}>
-                🗑  Delete drawing
+                Delete drawing
               </Text>
             </Pressable>
             <Pressable
@@ -1102,6 +1153,7 @@ function CanvasView({
               <Text style={[styles.drawActionText, styles.drawDoneText]}>Done</Text>
             </Pressable>
           </View>
+        </View>
         </View>
       ) : null}
 
@@ -1175,22 +1227,23 @@ function DeleteFolderDialog({
 }
 
 function ToolButton({
-  emoji,
+  icon,
   label,
-  active,
   onPress,
-  styles,
 }: {
-  emoji: string;
+  icon: LucideIcon;
   label: string;
-  active?: boolean;
   onPress: () => void;
-  styles: ReturnType<typeof makeStyles>;
 }) {
   return (
-    <Pressable style={[styles.toolBtn, active && styles.toolBtnActive]} onPress={onPress}>
-      <Text style={styles.toolEmoji}>{emoji}</Text>
-      <Text style={[styles.toolLabel, active && styles.toolLabelActive]}>{label}</Text>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Add ${label.toLowerCase()}`}
+      className="items-center gap-0.5 rounded-lg px-3 py-1.5 web:transition-all web:duration-150 web:hover:bg-accent active:scale-95 active:bg-accent"
+    >
+      <Icon as={icon} size={18} className="text-foreground/80" />
+      <UIText className="text-muted-foreground text-[11px] font-medium">{label}</UIText>
     </Pressable>
   );
 }
@@ -1198,14 +1251,15 @@ function ToolButton({
 // Theme-independent bits: sticky notes, media cards, drawing handles.
 const cardStyles = StyleSheet.create({
   itemWrap: { position: "absolute", top: 0, left: 0 },
+  // Paper-like: a soft, low shadow rather than a hard drop.
   card: {
-    borderRadius: radius.sm,
+    borderRadius: 10,
     paddingBottom: spacing.sm,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   mediaCard: { backgroundColor: "#FFFFFF", padding: 2 },
   itemBar: {
@@ -1278,12 +1332,12 @@ const cardStyles = StyleSheet.create({
     minHeight: FOLDER_H,
     borderRadius: radius.md,
     paddingBottom: spacing.sm,
-    backgroundColor: "#FFE7B3",
+    backgroundColor: "#FBE9C2",
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   folderOpen: { alignItems: "center", paddingVertical: spacing.xs },
   folderIcon: { fontSize: 34 },
@@ -1341,35 +1395,14 @@ const cardStyles = StyleSheet.create({
 
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
-    screen: { flex: 1, backgroundColor: t.bg },
+    screen: { flex: 1, backgroundColor: "transparent" },
     header: {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
-      paddingBottom: spacing.sm,
     },
-    headerRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    title: { fontSize: 24, fontWeight: "700", color: t.text },
-    subtitle: { fontSize: 13, color: t.muted, marginTop: spacing.xs },
 
     tabBarWrap: { borderBottomWidth: 1, borderBottomColor: t.border },
-    tabBar: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: spacing.xs },
-    tab: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs + 2,
-      borderRadius: 999,
-      backgroundColor: t.surface,
-    },
-    tabActive: { backgroundColor: colors.accent },
-    tabDot: { width: 8, height: 8, borderRadius: 4 },
-    tabText: { fontSize: 13, fontWeight: "600", color: t.text },
-    tabTextActive: { color: "#FFFFFF" },
+    tabBar: { paddingHorizontal: spacing.md, gap: 2 },
 
     breadcrumb: {
       flexDirection: "row",
@@ -1381,42 +1414,26 @@ const makeStyles = (t: Palette) =>
       borderBottomColor: t.border,
       backgroundColor: t.surface,
     },
-    crumbBack: { fontSize: 14, fontWeight: "700", color: colors.accent },
+    crumbBack: { fontSize: 14, fontWeight: "700", color: t.accent },
     crumbPath: { flex: 1, fontSize: 12, color: t.muted },
 
     canvasArea: { flex: 1 },
-    toolbar: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: t.border },
-    toolbarContent: {
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
-      gap: spacing.sm,
-    },
-    toolBtn: {
-      alignItems: "center",
+    toolDock: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: spacing.lg,
       paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      borderRadius: radius.sm,
-      backgroundColor: t.surface,
-      borderWidth: 1,
-      borderColor: t.border,
-      minWidth: 58,
+      alignItems: "center",
     },
-    toolBtnActive: {
-      backgroundColor: t.scheme === "dark" ? "#1E3050" : "#E9F1FF",
-      borderColor: colors.accent,
-    },
-    toolEmoji: { fontSize: 18 },
-    toolLabel: { fontSize: 11, color: t.text, marginTop: 2, fontWeight: "600" },
-    toolLabelActive: { color: colors.accent },
 
     canvasScroll: { flex: 1 },
     canvas: { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, backgroundColor: t.surface },
 
+    // Lives inside toolDock, which centers it above the canvas.
     drawBar: {
-      position: "absolute",
-      left: spacing.md,
-      right: spacing.md,
-      bottom: spacing.md,
+      width: "100%",
+      maxWidth: 520,
       backgroundColor: t.card,
       borderRadius: radius.md,
       borderWidth: 1,
@@ -1455,7 +1472,7 @@ const makeStyles = (t: Palette) =>
       alignItems: "center",
       justifyContent: "center",
     },
-    penBtnOn: { borderColor: colors.accent },
+    penBtnOn: { borderColor: t.accent },
     drawActionBtn: {
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,
@@ -1465,10 +1482,10 @@ const makeStyles = (t: Palette) =>
       borderColor: t.border,
     },
     drawActionText: { fontSize: 13, fontWeight: "700", color: t.text },
-    drawDone: { backgroundColor: colors.accent, borderColor: colors.accent },
+    drawDone: { backgroundColor: t.accent, borderColor: t.accent },
     drawDoneText: { color: "#FFFFFF" },
-    drawDelete: { backgroundColor: colors.danger, borderColor: colors.danger, flex: 1 },
-    drawDeleteText: { color: "#FFFFFF" },
+    drawDelete: { backgroundColor: "transparent", borderColor: t.danger, flex: 1, alignItems: "center" },
+    drawDeleteText: { color: t.danger },
     drawHint: { fontSize: 11, color: t.muted, textAlign: "center" },
 
     pickerBackdrop: { flex: 1, backgroundColor: t.overlay, justifyContent: "flex-end" },
@@ -1485,5 +1502,5 @@ const makeStyles = (t: Palette) =>
       justifyContent: "space-between",
     },
     pickerTitle: { fontSize: 18, fontWeight: "700", color: t.text },
-    pickerDone: { fontSize: 15, fontWeight: "700", color: colors.accent },
+    pickerDone: { fontSize: 15, fontWeight: "700", color: t.accent },
   });

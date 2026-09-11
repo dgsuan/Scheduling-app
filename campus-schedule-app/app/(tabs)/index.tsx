@@ -1,410 +1,290 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import Svg, { Circle } from "react-native-svg";
+import { router } from "expo-router";
+import { ArrowRight, Plus } from "lucide-react-native";
+import { useMemo, useState } from "react";
+import { Pressable, ScrollView, View } from "react-native";
+import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 
-import { colors, radius, spacing, type Palette } from "@/constants/theme";
-import { ThemeToggle, useTheme } from "@/context/theme";
-import { getHolidays, holidaysOn } from "@/constants/holidays";
-import { useCourses, useTasks } from "@/context/store";
-import type { Weekday } from "@/context/store";
-import { NextClassCard } from "@/components/schedule/NextClassCard";
-import { ScheduleNowCard } from "@/components/schedule/ScheduleNowCard";
+import { ScreenHeader } from "@/components/ScreenHeader";
+import { ScheduleRow, TodayHero } from "@/components/schedule/TodayHero";
+import { WeekStrip } from "@/components/schedule/WeekStrip";
 import { TaskCheckbox } from "@/components/TaskCheckbox";
-import {
-  computeNowAndNext,
-  display12h,
-  formatRange,
-  occurrencesOnDay,
-} from "@/lib/schedule";
-import {
-  formatDue,
-  friendlyDue,
-  isDueSoon,
-  isOverdue,
-  isoDate,
-  sortTasks,
-  todayIso,
-  withinNextDays,
-} from "@/lib/tasks";
+import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Text } from "@/components/ui/text";
+import { colors } from "@/constants/theme";
+import { holidaysOn } from "@/constants/holidays";
+import { GENERAL_CANVAS, useCanvas, useCourses, useEvents, useTasks, type Task, type Weekday } from "@/context/store";
+import { agendaForDate, formatShortDate } from "@/lib/calendar";
+import { computeNowAndNext, occurrencesOnDay } from "@/lib/schedule";
+import { formatDue, isDueSoon, isOverdue, isoDate, sortTasks, withinNextDays } from "@/lib/tasks";
+import { greeting } from "@/lib/timeOfDay";
+import { useBreakpoint } from "@/lib/useBreakpoint";
+import { useNow } from "@/lib/useNow";
+import { cn } from "@/lib/utils";
 
-function greeting(h: number): string {
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
-}
+// Home: a personal command center. One dominant block (what's happening
+// now / next), then the rest of today, with tasks, the week and recent
+// notes alongside. Hierarchy comes from type and space, not more cards.
 
-function ProgressRing({ pct }: { pct: number }) {
-  const t = useTheme();
-  const styles = makeStyles(t);
-  const size = 88;
-  const stroke = 9;
-  const r = (size - stroke) / 2;
-  const circ = 2 * Math.PI * r;
+function SectionTitle({ children, right }: { children: string; right?: React.ReactNode }) {
   return (
-    <View style={{ width: size, height: size }}>
-      <Svg width={size} height={size}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={t.cardBorder} strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={colors.accent}
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={`${circ} ${circ}`}
-          strokeDashoffset={circ * (1 - pct)}
-          strokeLinecap="round"
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
-      </Svg>
-      <View style={styles.ringLabel}>
-        <Text style={styles.ringPct}>{Math.round(pct * 100)}%</Text>
-      </View>
+    <View className="mb-2 flex-row items-baseline justify-between">
+      <Text className="text-[15px] font-semibold">{children}</Text>
+      {right}
     </View>
   );
 }
 
-function Stat({ value, label, danger }: { value: number; label: string; danger?: boolean }) {
-  const styles = makeStyles(useTheme());
+function LinkButton({ label, href }: { label: string; href: "/tasks" | "/notes" | "/calendar" }) {
   return (
-    <View style={styles.stat}>
-      <Text style={[styles.statValue, danger && value > 0 && styles.statDanger]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    <Pressable
+      onPress={() => router.navigate(href)}
+      accessibilityRole="link"
+      className="group flex-row items-center gap-1 rounded px-1 web:transition-opacity web:hover:opacity-80"
+    >
+      <Text className="text-primary text-[13px] font-medium">{label}</Text>
+      <Icon as={ArrowRight} size={13} className="text-primary web:transition-transform web:group-hover:translate-x-0.5" />
+    </Pressable>
+  );
+}
+
+function TaskLine({ task, now, onToggle }: { task: Task; now: Date; onToggle: (done: boolean) => void }) {
+  const overdue = isOverdue(task, now);
+  const soon = !overdue && isDueSoon(task, now);
+  return (
+    <Animated.View
+      entering={FadeIn.duration(220)}
+      exiting={FadeOut.duration(150)}
+      layout={LinearTransition.springify().damping(20).stiffness(220)}
+    >
+      {/* Reanimated views ignore className — layout lives on the inner View. */}
+      <View className="flex-row items-center gap-3 py-2">
+      <TaskCheckbox checked={task.done} onCheckedChange={onToggle} label={task.title || "Task"} />
+      <Text
+        numberOfLines={1}
+        className={cn("flex-1 text-[15px]", task.done && "text-muted-foreground line-through")}
+      >
+        {task.title}
+      </Text>
+      {task.due ? (
+        <Text
+          className={cn(
+            "text-[13px] tabular-nums",
+            task.done ? "text-muted-foreground" : overdue ? "text-destructive font-medium" : soon ? "text-warning font-medium" : "text-muted-foreground"
+          )}
+        >
+          {overdue && !task.done ? "Overdue · " : ""}
+          {formatDue(task, now)}
+        </Text>
+      ) : null}
+      </View>
+    </Animated.View>
   );
 }
 
 export default function ScheduleHomeScreen() {
   const { courses } = useCourses();
   const { tasks, addTask, updateTask } = useTasks();
-  const t = useTheme();
-  const styles = useMemo(() => makeStyles(t), [t]);
-
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    // Frequent enough that "ends in N min" and the Now → Next hand-off stay live.
-    const id = setInterval(() => setNow(new Date()), 15_000);
-    return () => clearInterval(id);
-  }, []);
-
+  const { events } = useEvents();
+  const { items: generalItems } = useCanvas(GENERAL_CANVAS);
+  const { desktop } = useBreakpoint();
+  const now = useNow();
   const [quick, setQuick] = useState("");
 
-  const dateLabel = now.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
-  const { ongoing, next } = useMemo(() => computeNowAndNext(courses, now), [courses, now]);
-  const todaysClasses = useMemo(
-    () => occurrencesOnDay(courses, now.getDay() as Weekday),
-    [courses, now]
-  );
-
   const tIso = isoDate(now);
-  const todayTasks = useMemo(
-    () => sortTasks(tasks.filter((t) => t.due === tIso)),
-    [tasks, tIso]
-  );
-  const doneToday = todayTasks.filter((t) => t.done).length;
-  const pct = todayTasks.length ? doneToday / todayTasks.length : 0;
-  const overdueCount = tasks.filter((t) => isOverdue(t, now)).length;
-  const dueTodayCount = todayTasks.filter((t) => !t.done).length;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const { ongoing, next } = useMemo(() => computeNowAndNext(courses, now), [courses, now]);
+  const todays = useMemo(() => occurrencesOnDay(courses, now.getDay() as Weekday), [courses, now]);
 
-  const upcomingTasks = useMemo(
-    () => withinNextDays(tasks, 7, now).filter((t) => t.due !== tIso),
+  // Rows beneath the hero: "Next" (only while something is on), then later.
+  const heroOcc = ongoing ?? (next && next.daysAhead === 0 ? next : null);
+  const nextRow = ongoing && next && next.daysAhead === 0 ? next : null;
+  const laterStart = (nextRow ?? heroOcc)?.startMin ?? nowMin;
+  const later = todays.filter((o) => o.startMin > laterStart);
+  const todaysEvents = useMemo(
+    () =>
+      agendaForDate(tIso, now.getDay() as Weekday, { courses: [], tasks: [], events, notes: [], holidays: [] }).filter(
+        (i) => i.kind === "event"
+      ),
+    [events, tIso, now]
+  );
+
+  const overdue = useMemo(() => sortTasks(tasks.filter((t) => isOverdue(t, now))), [tasks, now]);
+  const dueToday = useMemo(
+    () => sortTasks(tasks.filter((t) => t.due === tIso && !isOverdue(t, now))),
+    [tasks, tIso, now]
+  );
+  const upcoming = useMemo(
+    () => withinNextDays(tasks, 7, now).filter((t) => t.due! > tIso && !t.done).slice(0, 4),
     [tasks, now, tIso]
   );
+  const doneToday = dueToday.filter((t) => t.done).length;
 
-  const endIso = isoDate(
-    new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7)
+  const recentNotes = useMemo(
+    () => generalItems.filter((it) => it.kind === "text" && it.text.trim()).slice(-3).reverse(),
+    [generalItems]
   );
-  const holidaysThisWeek = useMemo(() => {
-    const years = [now.getFullYear(), now.getFullYear() + 1];
-    return years
-      .flatMap((y) => getHolidays(y))
-      .filter((h) => h.date >= tIso && h.date <= endIso);
-  }, [now, tIso, endIso]);
-  const upcomingHolidays = holidaysThisWeek.filter((h) => h.date !== tIso);
 
-  const todayHolidays = holidaysOn(tIso);
+  const holiday = holidaysOn(tIso)[0];
+  const openToday = dueToday.length - doneToday;
+  const summary = [
+    `${todays.length} class${todays.length === 1 ? "" : "es"} today`,
+    `${openToday} task${openToday === 1 ? "" : "s"} due`,
+  ];
 
   const addQuick = () => {
     const text = quick.trim();
     if (!text) return;
-    addTask({ title: text, priority: "medium", due: todayIso(), done: false });
+    addTask({ title: text, priority: "medium", due: tIso, done: false });
     setQuick("");
   };
 
-  return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.greeting}>{greeting(now.getHours())}</Text>
-          <Text style={styles.date}>{dateLabel}</Text>
-        </View>
-        <ThemeToggle />
-      </View>
+  const dateTitle = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
-      {todayHolidays.length > 0 ? (
-        <View style={styles.holidayBanner}>
-          <Text style={styles.holidayBannerText}>
-            🎉 {todayHolidays.map((h) => h.name).join(" · ")}
-          </Text>
+  const schedule = (
+    <View>
+      <TodayHero ongoing={ongoing} next={next} now={now} hasCourses={courses.length > 0} />
+      {nextRow || later.length || todaysEvents.length ? (
+        <View className="mt-2 px-1">
+          {nextRow ? <ScheduleRow occ={nextRow} label="Next" now={now} emphasis /> : null}
+          {later.map((o, i) => (
+            <View key={`${o.course.id}-${o.startMin}`}>
+              {i > 0 || nextRow ? <Separator className="bg-border/60" /> : null}
+              <ScheduleRow occ={o} label={i === 0 ? "Later" : undefined} now={now} />
+            </View>
+          ))}
+          {todaysEvents.map((e, i) => (
+            <View key={e.key}>
+              {i > 0 || nextRow || later.length ? <Separator className="bg-border/60" /> : null}
+              <View className="flex-row items-center gap-4 py-3.5">
+                <Text className="text-muted-foreground w-12 text-[11px] font-semibold uppercase tracking-[1.2px]">
+                  {i === 0 ? "Event" : ""}
+                </Text>
+                <View className="bg-primary h-[3px] w-2 rounded-full" />
+                <Text className="flex-1 text-[15px] font-medium">{e.title}</Text>
+                <Text className="text-muted-foreground text-sm tabular-nums">{e.kind === "event" ? e.timeLabel : ""}</Text>
+              </View>
+            </View>
+          ))}
         </View>
       ) : null}
+    </View>
+  );
 
-      {/* Now / next class — derived live from the Courses list */}
-      {ongoing ? <ScheduleNowCard occ={ongoing} now={now} /> : null}
-      <NextClassCard
-        next={next}
-        now={now}
-        hasCourses={courses.length > 0}
-        prominent={!ongoing}
-      />
+  const taskSection = (
+    <View>
+      <SectionTitle
+        right={
+          dueToday.length ? (
+            <Text className="text-muted-foreground text-[13px] tabular-nums">
+              {doneToday} of {dueToday.length} done today
+            </Text>
+          ) : (
+            <LinkButton label="All tasks" href="/tasks" />
+          )
+        }
+      >
+        Tasks
+      </SectionTitle>
+      <View className="border-border bg-card/60 mb-1 flex-row items-center gap-2 rounded-lg border px-3">
+        <Icon as={Plus} size={16} className="text-muted-foreground" />
+        <Input
+          value={quick}
+          onChangeText={setQuick}
+          onSubmitEditing={addQuick}
+          returnKeyType="done"
+          placeholder="Add a task for today…"
+          accessibilityLabel="Add a task for today"
+          className="h-10 flex-1 border-0 bg-transparent px-0 shadow-none dark:bg-transparent web:focus-visible:ring-0"
+        />
+      </View>
+      <LayoutAnimationConfig skipEntering>
+        {overdue.length + dueToday.length + upcoming.length === 0 ? (
+          <Text className="text-muted-foreground py-3 text-sm">Nothing due. Enjoy the breathing room.</Text>
+        ) : null}
+        {[...overdue, ...dueToday.filter((t) => !t.done), ...upcoming, ...dueToday.filter((t) => t.done)].map((t) => (
+          <TaskLine key={t.id} task={t} now={now} onToggle={(done) => updateTask(t.id, { done })} />
+        ))}
+      </LayoutAnimationConfig>
+      {dueToday.length ? (
+        <View className="mt-1 items-start">
+          <LinkButton label="All tasks" href="/tasks" />
+        </View>
+      ) : null}
+    </View>
+  );
 
-      {/* Progress + glance */}
-      <View style={styles.progressRow}>
-        <View style={[styles.card, styles.progressCard]}>
-          <Text style={styles.cardLabel}>Today&apos;s Progress</Text>
-          <View style={styles.progressInner}>
-            <ProgressRing pct={pct} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.progressStat}>
-                <Text style={styles.progressStrong}>{doneToday}</Text> completed
-              </Text>
-              <Text style={styles.progressStat}>
-                <Text style={styles.progressStrong}>{dueTodayCount}</Text> remaining
-              </Text>
-            </View>
+  const side = (
+    <View className="gap-9">
+      {taskSection}
+      <View>
+        <SectionTitle right={<LinkButton label="Calendar" href="/calendar" />}>This week</SectionTitle>
+        <WeekStrip courses={courses} tasks={tasks} now={now} />
+      </View>
+      {recentNotes.length ? (
+        <View>
+          <SectionTitle right={<LinkButton label="Notes" href="/notes" />}>Recent notes</SectionTitle>
+          <View className="gap-2">
+            {recentNotes.map((n) =>
+              n.kind === "text" ? (
+                <Pressable
+                  key={n.id}
+                  onPress={() => router.navigate("/notes")}
+                  accessibilityRole="button"
+                  className="bg-card/70 border-border flex-row gap-3 overflow-hidden rounded-lg border py-2.5 pr-3 web:transition-colors web:hover:bg-card active:bg-accent"
+                >
+                  <View className="w-1 rounded-full" style={{ backgroundColor: n.color }} />
+                  <View className="flex-1">
+                    <Text numberOfLines={2} className="text-[14px] leading-5">
+                      {n.text.trim()}
+                    </Text>
+                    {n.date ? <Text className="text-muted-foreground mt-0.5 text-xs">{formatShortDate(n.date)}</Text> : null}
+                  </View>
+                </Pressable>
+              ) : null
+            )}
           </View>
         </View>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <ScrollView
+      className="flex-1"
+      contentContainerClassName={cn("w-full max-w-[1120px] self-center pb-16", desktop ? "px-10 pt-10" : "px-5 pt-6")}
+      keyboardShouldPersistTaps="handled"
+    >
+      <ScreenHeader eyebrow={greeting(now)} title={dateTitle} />
+      <View className="-mt-4 mb-7 flex-row flex-wrap items-center gap-x-3 gap-y-1">
+        <Text className="text-muted-foreground text-sm">
+          {summary.join("  ·  ")}
+          {overdue.length ? (
+            <Text className="text-destructive text-sm font-medium">{`  ·  ${overdue.length} overdue`}</Text>
+          ) : null}
+        </Text>
+        {holiday ? (
+          <View className="flex-row items-center gap-1.5">
+            <View className="size-1.5 rotate-45" style={{ backgroundColor: colors.holidayRegular }} />
+            <Text className="text-sm font-medium" style={{ color: colors.holidayRegular }}>
+              {holiday.name}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
-      <View style={[styles.card, styles.glanceCard]}>
-        <Text style={styles.cardLabel}>At a Glance</Text>
-        <View style={styles.glanceGrid}>
-          <Stat value={todaysClasses.length} label="Classes today" />
-          <Stat value={dueTodayCount} label="Due today" />
-          <Stat value={overdueCount} label="Overdue" danger />
-          <Stat value={holidaysThisWeek.length} label="Events this week" />
-          <Stat value={doneToday} label="Done today" />
+      {desktop ? (
+        <View className="flex-row items-start gap-12">
+          <View className="flex-[1.35]">{schedule}</View>
+          <View className="flex-1">{side}</View>
         </View>
-      </View>
-
-      {/* Quick add */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Quick Add</Text>
-        <View style={styles.quickRow}>
-          <TextInput
-            style={styles.quickInput}
-            value={quick}
-            onChangeText={setQuick}
-            placeholder="Add a task for today…"
-            placeholderTextColor={t.muted}
-            onSubmitEditing={addQuick}
-            returnKeyType="done"
-          />
-          <Pressable style={styles.quickBtn} onPress={addQuick}>
-            <Text style={styles.quickBtnText}>Add</Text>
-          </Pressable>
+      ) : (
+        <View className="gap-10">
+          {schedule}
+          {side}
         </View>
-      </View>
-
-      {/* Today */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Today</Text>
-        {todaysClasses.length === 0 && todayTasks.length === 0 ? (
-          <Text style={styles.emptyLine}>Nothing scheduled today.</Text>
-        ) : (
-          <>
-            {todaysClasses.map((o, i) => (
-              <View key={`c-${i}`} style={styles.listRow}>
-                <View style={[styles.rowDot, { backgroundColor: o.course.color }]} />
-                <Text style={styles.rowTime}>{formatRange(o.meeting.start, o.meeting.end)}</Text>
-                <Text style={styles.rowText} numberOfLines={1}>
-                  {o.course.code}
-                </Text>
-              </View>
-            ))}
-            {todayTasks.map((task) => (
-              <View key={task.id} style={styles.listRow}>
-                <TaskCheckbox
-                  checked={task.done}
-                  onCheckedChange={(done) => updateTask(task.id, { done })}
-                  label={task.title || "Task"}
-                />
-                <Text
-                  style={[styles.rowText, { flex: 1 }, task.done && styles.rowTextDone]}
-                  numberOfLines={1}
-                >
-                  {task.title}
-                </Text>
-                {task.dueTime ? (
-                  <Text
-                    style={[
-                      styles.rowTime,
-                      { width: undefined },
-                      isOverdue(task, now) ? styles.statDanger : isDueSoon(task, now) && styles.dueSoon,
-                    ]}
-                  >
-                    {display12h(task.dueTime)}
-                  </Text>
-                ) : null}
-              </View>
-            ))}
-          </>
-        )}
-      </View>
-
-      {/* Next 7 days */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Next 7 Days</Text>
-        {upcomingHolidays.length === 0 && upcomingTasks.length === 0 ? (
-          <Text style={styles.emptyLine}>Nothing coming up.</Text>
-        ) : (
-          <>
-            {upcomingHolidays.map((h) => (
-              <View key={`h-${h.date}-${h.name}`} style={styles.listRow}>
-                <View style={[styles.rowDot, { backgroundColor: colors.holidayRegular }]} />
-                <Text style={styles.rowTime}>{friendlyDue(h.date, now)}</Text>
-                <Text style={styles.rowText} numberOfLines={1}>
-                  {h.name}
-                </Text>
-              </View>
-            ))}
-            {upcomingTasks.map((task) => (
-              <View key={task.id} style={styles.listRow}>
-                <TaskCheckbox
-                  checked={task.done}
-                  onCheckedChange={(done) => updateTask(task.id, { done })}
-                  label={task.title || "Task"}
-                />
-                <Text style={[styles.rowTime, { width: 128 }]} numberOfLines={1}>
-                  {formatDue(task, now)}
-                </Text>
-                <Text
-                  style={[styles.rowText, { flex: 1 }, task.done && styles.rowTextDone]}
-                  numberOfLines={1}
-                >
-                  {task.title}
-                </Text>
-              </View>
-            ))}
-          </>
-        )}
-      </View>
-
-      <Text style={styles.footnote}>
-        Classes come from your Courses list; tasks and progress from the Tasks
-        tab. Philippine holidays are shown automatically.
-      </Text>
+      )}
     </ScrollView>
   );
 }
-
-const makeStyles = (t: Palette) =>
-  StyleSheet.create({
-  screen: { flex: 1, backgroundColor: t.bg },
-  content: { padding: spacing.lg, gap: spacing.md },
-  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
-
-  greeting: { color: t.text, fontSize: 26, fontWeight: "700" },
-  date: { color: t.muted, fontSize: 14, marginTop: spacing.xs },
-
-  holidayBanner: { backgroundColor: colors.holidayRegular, borderRadius: radius.md, padding: spacing.md },
-  holidayBannerText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-
-  card: {
-    backgroundColor: t.card,
-    borderColor: t.cardBorder,
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  cardLabel: {
-    color: t.muted,
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: spacing.md,
-  },
-  badge: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.danger,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    marginBottom: spacing.sm,
-  },
-  badgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
-  bigTitle: { color: t.text, fontSize: 20, fontWeight: "700", marginBottom: spacing.xs },
-  mutedLine: { color: t.muted, fontSize: 14, marginTop: 2 },
-  emptyLine: { color: t.muted, fontSize: 14 },
-
-  progressRow: { flexDirection: "row", gap: spacing.md },
-  progressCard: { flex: 1 },
-  progressInner: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
-  ringLabel: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
-  ringPct: { color: t.text, fontSize: 18, fontWeight: "700" },
-  progressStat: { color: t.muted, fontSize: 14, marginVertical: 2 },
-  progressStrong: { color: t.text, fontWeight: "700" },
-
-  glanceCard: {},
-  glanceGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
-  stat: { minWidth: 72 },
-  statValue: { color: t.text, fontSize: 22, fontWeight: "700" },
-  statDanger: { color: colors.danger },
-  dueSoon: { color: colors.holidaySpecial, fontWeight: "600" },
-  statLabel: { color: t.muted, fontSize: 11, marginTop: 2 },
-
-  quickRow: { flexDirection: "row", gap: spacing.sm },
-  quickInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: t.cardBorder,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    color: t.text,
-    fontSize: 14,
-  },
-  quickBtn: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.lg,
-    justifyContent: "center",
-  },
-  quickBtnText: { color: "#FFFFFF", fontWeight: "700" },
-
-  listRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs + 2 },
-  rowDot: { width: 8, height: 8, borderRadius: 4 },
-  rowTime: { color: t.muted, fontSize: 12, width: 96 },
-  rowText: { color: t.text, fontSize: 14 },
-  rowTextDone: { color: t.muted, textDecorationLine: "line-through" },
-  checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    borderWidth: 1.5,
-    borderColor: t.muted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  checkTick: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
-
-  footnote: { color: t.muted, fontSize: 12, lineHeight: 18, marginTop: spacing.sm },
-});

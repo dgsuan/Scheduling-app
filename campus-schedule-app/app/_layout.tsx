@@ -1,6 +1,9 @@
 import "../global.css";
+import "@/lib/webFonts";
 
+import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from "@react-navigation/native";
 import { PortalHost } from "@rn-primitives/portal";
+import { useMemo } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -14,12 +17,31 @@ import { ThemeProvider, useTheme } from "@/context/theme";
 // data store and the light/dark theme both wrap the whole tree.
 function ThemedShell() {
   const t = useTheme();
+  const navTheme = useMemo(() => {
+    const base = t.scheme === "dark" ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        background: "transparent",
+        card: t.card,
+        text: t.text,
+        border: t.border,
+        primary: t.accent,
+      },
+    };
+  }, [t]);
   return (
     <>
       <StatusBar style={t.scheme === "dark" ? "light" : "dark"} />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }}>
-        <Stack.Screen name="(tabs)" />
-      </Stack>
+      {/* React Navigation paints its own theme background (#F2F2F2 by
+          default) behind every screen; make it transparent so the app's
+          time-of-day background shows, and give it the palette colors. */}
+      <NavThemeProvider value={navTheme}>
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "transparent" } }}>
+          <Stack.Screen name="(tabs)" />
+        </Stack>
+      </NavThemeProvider>
       {/* Mount point for Reusables overlays (dialogs, popovers, selects). */}
       <PortalHost />
     </>

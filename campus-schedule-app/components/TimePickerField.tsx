@@ -58,11 +58,13 @@ export function TimePickerField({
   onChange,
   placeholder = "Add time",
   accessibilityLabel,
+  variant = "outline",
 }: {
   value?: string;
   onChange: (v24: string | undefined) => void;
   placeholder?: string;
   accessibilityLabel?: string;
+  variant?: "outline" | "ghost";
 }) {
   const trigger = useRef<TriggerRef>(null);
   const parts = (value && to12h(value)) || DEFAULT_PARTS;
@@ -75,7 +77,7 @@ export function TimePickerField({
   return (
     <Popover>
       <PopoverTrigger ref={trigger} asChild>
-        <Button variant="outline" size="sm" className="justify-start" accessibilityLabel={accessibilityLabel}>
+        <Button variant={variant} size="sm" className="justify-start" accessibilityLabel={accessibilityLabel}>
           <Icon as={Clock} size={14} className="text-muted-foreground" />
           <Text className={cn(!value && "text-muted-foreground")}>
             {value ? display12h(value) : placeholder}

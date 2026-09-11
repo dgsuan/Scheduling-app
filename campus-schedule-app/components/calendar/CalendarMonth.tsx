@@ -18,7 +18,9 @@ import {
   formatDayLong,
   type AgendaItem,
   type AgendaSources,
+  type MonthCell,
 } from "@/lib/calendar";
+import { WEEKDAY_SHORT } from "@/lib/schedule";
 import { todayIso } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +28,8 @@ import { cn } from "@/lib/utils";
 //  • click a day → a small agenda popover anchored to it
 //  • press and drag across days → range highlight → onCreateRange
 // Mouse drags start after a few pixels; on touch, hold briefly first so
-// normal scrolling still works.
+// normal scrolling still works. Neighbouring months' days fill the grid
+// (faded) so it reads as a calendar, not a spreadsheet with holes.
 
 const WIDE_MIN_WIDTH = 640; // grid width where cells show text labels
 const DRAG_START_PX = 4;
@@ -51,28 +54,29 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const today = todayIso();
 
-  const cells = useMemo(() => buildMonthCells(year, month), [year, month]);
+  const cells = useMemo(() => buildMonthCells(year, month, true) as MonthCell[], [year, month]);
   const rows = cells.length / 7;
-  const firstIdx = cells.findIndex(Boolean);
-  const lastIdx = cells.length - 1 - [...cells].reverse().findIndex(Boolean);
 
   const agenda = useMemo(() => {
-    const holidays = holidayMap(year);
-    return cells.map((c) =>
-      c ? agendaForDate(c.iso, c.weekday, { ...sources, holidays: holidays.get(c.iso) ?? [] }) : []
-    );
-  }, [cells, sources, year]);
+    const byYear = new Map<number, ReturnType<typeof holidayMap>>();
+    const holidaysFor = (iso: string) => {
+      const y = Number(iso.slice(0, 4));
+      if (!byYear.has(y)) byYear.set(y, holidayMap(y));
+      return byYear.get(y)!.get(iso) ?? [];
+    };
+    return cells.map((c) => agendaForDate(c.iso, c.weekday, { ...sources, holidays: holidaysFor(c.iso) }));
+  }, [cells, sources]);
 
   // Close the popover when the month changes.
   useEffect(() => setOpenIdx(null), [year, month]);
 
   const wide = gridW >= WIDE_MIN_WIDTH;
   const cellW = gridW / 7 || 1;
-  const cellH = wide ? Math.round(Math.min(116, Math.max(88, cellW * 0.72))) : Math.round(Math.max(46, Math.min(cellW, 64)));
+  const cellH = wide ? Math.round(Math.min(118, Math.max(92, cellW * 0.74))) : Math.round(Math.max(48, Math.min(cellW, 64)));
 
   // Gesture callbacks read the latest values through refs.
-  const live = useRef({ cellW, cellH, rows, firstIdx, lastIdx });
-  live.current = { cellW, cellH, rows, firstIdx, lastIdx };
+  const live = useRef({ cellW, cellH, rows });
+  live.current = { cellW, cellH, rows };
   const dragRef = useRef(drag);
   dragRef.current = drag;
   const originRef = useRef<number | null>(null);
@@ -82,9 +86,7 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
     const g = live.current;
     const col = Math.min(6, Math.max(0, Math.floor(x / g.cellW)));
     const row = Math.min(g.rows - 1, Math.max(0, Math.floor(y / g.cellH)));
-    const idx = row * 7 + col;
-    // Blank leading/trailing squares snap to the nearest real day.
-    return Math.min(g.lastIdx, Math.max(g.firstIdx, idx));
+    return row * 7 + col;
   };
 
   const onCreateRef = useRef(onCreateRange);
@@ -112,11 +114,8 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
         suppressPressUntil.current = Date.now() + 400;
         const lo = Math.min(d.anchor, d.current);
         const hi = Math.max(d.anchor, d.current);
-        const a = cells[lo];
-        const b = cells[hi];
-        if (!a || !b) return;
         if (lo === hi && Platform.OS === "web") setOpenIdx(lo);
-        else onCreateRef.current(a.iso, b.iso);
+        else onCreateRef.current(cells[lo].iso, cells[hi].iso);
       })
       .onFinalize(() => setDrag(null));
     g = Platform.OS === "web" ? g.minDistance(DRAG_START_PX) : g.activateAfterLongPress(TOUCH_HOLD_MS);
@@ -157,11 +156,11 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
   const range = useMemo(() => {
     if (drag) return [Math.min(drag.anchor, drag.current), Math.max(drag.anchor, drag.current)] as const;
     if (!highlight) return null;
-    const lo = cells.findIndex((c) => c?.iso === highlight.start);
-    const hi = cells.findIndex((c) => c?.iso === highlight.end);
+    const lo = cells.findIndex((c) => c.iso === highlight.start);
+    const hi = cells.findIndex((c) => c.iso === highlight.end);
     if (lo < 0 && hi < 0) return null;
-    return [lo < 0 ? firstIdx : lo, hi < 0 ? lastIdx : hi] as const;
-  }, [drag, highlight, cells, firstIdx, lastIdx]);
+    return [lo < 0 ? 0 : lo, hi < 0 ? cells.length - 1 : hi] as const;
+  }, [drag, highlight, cells]);
 
   const openCell = openIdx != null ? cells[openIdx] : null;
   const popover = openCell ? (
@@ -181,8 +180,15 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
   return (
     <View>
       <View className="mb-1 flex-row">
-        {WEEKDAY_INITIALS.map((d, i) => (
-          <Text key={i} className="text-muted-foreground flex-1 text-center text-xs font-semibold">
+        {(wide ? WEEKDAY_SHORT : WEEKDAY_INITIALS).map((d, i) => (
+          <Text
+            key={i}
+            className={cn(
+              "flex-1 text-[11px] font-semibold uppercase tracking-[1px]",
+              wide ? "px-3 text-left" : "text-center",
+              i === 0 || i === 6 ? "text-muted-foreground/70" : "text-muted-foreground"
+            )}
+          >
             {d}
           </Text>
         ))}
@@ -193,24 +199,28 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
           <View ref={gridRef} className="select-none flex-row flex-wrap" role="grid">
             {gridW > 0 &&
               cells.map((cell, i) => {
-                if (!cell) return <View key={`b-${i}`} style={{ width: `${100 / 7}%`, height: cellH }} />;
                 const items = agenda[i];
-                const inRange = range && i >= range[0] && i <= range[1];
+                const inRange = !!range && i >= range[0] && i <= range[1];
                 const col = i % 7;
                 const isToday = cell.iso === today;
+                const isOpen = openIdx === i;
                 const holiday = items.find((it) => it.kind === "holiday");
                 const classes = items.filter((it) => it.kind === "class");
-                const labeled = items.filter((it) => it.kind !== "class");
-                const marks = wide ? classes : items;
+                const labeled = items.filter((it) => it.kind !== "class" && it.kind !== "holiday");
+                const weekend = cell.weekday === 0 || cell.weekday === 6;
                 return (
-                  <View key={cell.iso} style={{ width: `${100 / 7}%`, height: cellH }}>
+                  <View
+                    key={cell.iso}
+                    style={{ width: `${100 / 7}%`, height: cellH }}
+                    className={cn(i >= 7 && "border-border/60 border-t")}
+                  >
                     {inRange ? (
                       <View
                         pointerEvents="none"
                         className={cn(
-                          "bg-primary/15 absolute inset-y-0.5 left-0 right-0",
-                          (i === range![0] || col === 0) && "left-0.5 rounded-l-lg",
-                          (i === range![1] || col === 6) && "right-0.5 rounded-r-lg"
+                          "bg-primary/15 absolute inset-y-1 left-0 right-0",
+                          (i === range![0] || col === 0) && "left-1 rounded-l-lg",
+                          (i === range![1] || col === 6) && "right-1 rounded-r-lg"
                         )}
                       />
                     ) : null}
@@ -218,30 +228,35 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
                       onPress={() => pressDay(i)}
                       accessibilityRole="button"
                       accessibilityLabel={`${formatDayLong(cell.iso)}${isToday ? ", today" : ""}${items.length ? `, ${items.length} item${items.length === 1 ? "" : "s"}` : ""}`}
-                      accessibilityState={{ selected: openIdx === i }}
+                      accessibilityState={{ selected: isOpen }}
                       className={cn(
-                        "m-0.5 flex-1 rounded-lg border border-transparent web:transition-colors web:duration-100",
-                        !inRange && "web:hover:bg-accent",
-                        openIdx === i && "border-primary/60 bg-primary/5",
-                        wide ? "items-stretch px-1.5 pt-1" : "items-center justify-center"
+                        "m-1 flex-1 rounded-lg border border-transparent web:cursor-pointer web:transition-colors web:duration-150",
+                        !inRange && !isOpen && "web:hover:bg-accent/70",
+                        isOpen && "border-primary/40 bg-primary/10",
+                        wide ? "items-stretch px-1.5 pt-1.5" : "items-center justify-center"
                       )}
                     >
-                      <View className={cn("flex-row items-center gap-1", !wide && "justify-center")}>
+                      <View className={cn("flex-row items-center", wide ? "gap-1.5" : "justify-center")}>
                         <View
                           className={cn(
-                            "size-6 items-center justify-center rounded-full",
+                            "size-7 items-center justify-center rounded-full",
                             isToday && "bg-primary"
                           )}
                         >
                           <Text
                             className={cn(
-                              "text-[13px]",
-                              isToday && "text-primary-foreground font-bold",
-                              !isToday && holiday && "font-bold"
+                              "text-[13px] tabular-nums",
+                              isToday
+                                ? "text-primary-foreground font-bold"
+                                : cell.outside
+                                  ? "text-muted-foreground/50"
+                                  : weekend
+                                    ? "text-muted-foreground font-medium"
+                                    : "font-medium"
                             )}
                             style={
-                              !isToday && holiday && holiday.kind === "holiday" && holiday.holiday.type === "regular"
-                                ? { color: colors.holidayRegular }
+                              !isToday && !cell.outside && holiday && holiday.kind === "holiday"
+                                ? { color: holiday.holiday.type === "regular" ? colors.holidayRegular : colors.holidaySpecial }
                                 : undefined
                             }
                           >
@@ -249,8 +264,8 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
                           </Text>
                         </View>
                         {wide ? (
-                          <View className="flex-row gap-0.5">
-                            {marks.slice(0, 4).map((it) => (
+                          <View className="flex-row gap-[3px]">
+                            {classes.slice(0, 4).map((it) => (
                               <KindMark key={it.key} item={it} />
                             ))}
                           </View>
@@ -258,14 +273,31 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
                       </View>
 
                       {wide ? (
-                        <View className="mt-0.5 gap-px">
+                        <View className={cn("mt-1 gap-[3px]", cell.outside && "opacity-50")}>
+                          {holiday && holiday.kind === "holiday" ? (
+                            <Text
+                              numberOfLines={1}
+                              className="px-0.5 text-[11px] font-medium leading-4"
+                              style={{ color: holiday.holiday.type === "regular" ? colors.holidayRegular : colors.holidaySpecial }}
+                            >
+                              {holiday.title}
+                            </Text>
+                          ) : null}
                           {labeled.slice(0, MAX_LABELS).map((it) => (
-                            <View key={it.key} className="flex-row items-center gap-1">
+                            <View
+                              key={it.key}
+                              className={cn(
+                                "flex-row items-center gap-1.5 rounded px-1 py-px",
+                                it.kind === "event" && "bg-primary/10"
+                              )}
+                            >
                               <KindMark item={it} />
                               <Text
                                 className={cn(
-                                  "flex-1 text-[11px] leading-4",
-                                  it.kind === "task" && it.task.done && "text-muted-foreground line-through"
+                                  "flex-1 text-[11.5px] leading-4",
+                                  it.kind === "event" ? "text-foreground font-medium" : "text-foreground/85",
+                                  it.kind === "task" && it.task.done && "text-muted-foreground line-through",
+                                  it.kind === "note" && "text-muted-foreground italic"
                                 )}
                                 numberOfLines={1}
                               >
@@ -274,14 +306,14 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
                             </View>
                           ))}
                           {labeled.length > MAX_LABELS ? (
-                            <Text className="text-muted-foreground text-[10px]">
+                            <Text className="text-muted-foreground px-1 text-[10.5px]">
                               +{labeled.length - MAX_LABELS} more
                             </Text>
                           ) : null}
                         </View>
                       ) : (
-                        <View className="mt-0.5 h-[7px] flex-row items-center gap-[3px]">
-                          {dedupeMarks(marks).slice(0, 4).map((it) => (
+                        <View className={cn("mt-0.5 h-[7px] flex-row items-center gap-[3px]", cell.outside && "opacity-40")}>
+                          {dedupeMarks(items).slice(0, 4).map((it) => (
                             <KindMark key={it.key} item={it} />
                           ))}
                         </View>
@@ -324,6 +356,6 @@ function anchoredStyle(idx: number, gridW: number, cellW: number, cellH: number,
     width,
     left,
     zIndex: 50,
-    ...(below ? { top: (row + 1) * cellH + 4 } : { bottom: (rows - row) * cellH + 4 }),
+    ...(below ? { top: (row + 1) * cellH + 2 } : { bottom: (rows - row) * cellH + 2 }),
   };
 }

@@ -2,52 +2,57 @@
 @tailwind components;
 @tailwind utilities;
 
-/* shadcn-style tokens (HSL, no hsl() wrapper) consumed by tailwind.config.js.
-   Values mirror LIGHT / DARK in constants/theme.ts — keep them in sync.
-   Dark mode is driven by context/theme.tsx via nativewind's colorScheme. */
+/* Default tokens (HSL triplets) consumed by tailwind.config.js. These are
+   the neutral "afternoon" values; at runtime context/theme.tsx replaces
+   them with buildTheme(scheme, timeOfDay) from constants/theme.ts — edit
+   colors there, and keep these defaults in sync. */
 @layer base {
   :root {
-    --background: 0 0% 100%;            /* bg #FFFFFF */
-    --foreground: 0 0% 10.2%;           /* text #1A1A1A */
-    --card: 0 0% 100%;                  /* card #FFFFFF */
-    --card-foreground: 0 0% 10.2%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 10.2%;
-    --primary: 219 100% 65.5%;          /* accent #4F8CFF */
-    --primary-foreground: 0 0% 100%;    /* onAccent */
-    --secondary: 220 15.8% 96.3%;       /* surface #F4F5F7 */
-    --secondary-foreground: 0 0% 10.2%;
-    --muted: 220 15.8% 96.3%;
-    --muted-foreground: 220 8.9% 46.1%; /* muted #6B7280 */
-    --accent: 220 15.8% 96.3%;          /* shadcn "accent" = subtle hover bg */
-    --accent-foreground: 0 0% 10.2%;
-    --destructive: 358 75.1% 59%;       /* danger #E5484D */
+    --background: 40 12% 97.5%;
+    --foreground: 30 12% 12%;
+    --card: 40 25% 99%;
+    --card-foreground: 30 12% 12%;
+    --popover: 40 25% 99%;
+    --popover-foreground: 30 12% 12%;
+    --primary: 172 48% 30%;
+    --primary-foreground: 40 30% 98%;
+    --secondary: 38 16% 93%;
+    --secondary-foreground: 30 12% 12%;
+    --muted: 38 16% 93%;
+    --muted-foreground: 30 7% 42%;
+    --accent: 38 18% 91%;
+    --accent-foreground: 30 12% 12%;
+    --destructive: 6 64% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 223 13.7% 90%;            /* border #E2E4E9 */
-    --input: 223 13.7% 90%;
-    --ring: 219 100% 65.5%;
-    --radius: 0.75rem;                  /* radius.md = 12 */
+    --border: 36 14% 87%;
+    --input: 36 14% 85%;
+    --ring: 172 48% 30%;
+    --warning: 34 88% 40%;
+    --success: 150 40% 34%;
+    --radius: 0.625rem;
   }
 
   .dark:root {
-    --background: 0 0% 7.1%;            /* bg #121212 */
-    --foreground: 0 0% 96.1%;           /* text #F5F5F5 */
-    --card: 0 0% 11.8%;                 /* card #1E1E1E */
-    --card-foreground: 0 0% 96.1%;
-    --popover: 0 0% 11.8%;
-    --popover-foreground: 0 0% 96.1%;
-    --primary: 219 100% 65.5%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 3.4% 11.4%;        /* surface #1C1C1E */
-    --secondary-foreground: 0 0% 96.1%;
-    --muted: 240 3.4% 11.4%;
-    --muted-foreground: 0 0% 60.4%;     /* muted #9A9A9A */
-    --accent: 240 3.2% 18.6%;
-    --accent-foreground: 0 0% 96.1%;
-    --destructive: 358 75.1% 59%;
+    --background: 30 6% 9%;
+    --foreground: 40 14% 92%;
+    --card: 30 5% 12%;
+    --card-foreground: 40 14% 92%;
+    --popover: 30 5% 13%;
+    --popover-foreground: 40 14% 92%;
+    --primary: 168 42% 52%;
+    --primary-foreground: 170 40% 10%;
+    --secondary: 30 5% 15%;
+    --secondary-foreground: 40 14% 92%;
+    --muted: 30 5% 15%;
+    --muted-foreground: 35 6% 60%;
+    --accent: 30 5% 17%;
+    --accent-foreground: 40 14% 92%;
+    --destructive: 6 68% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 3.2% 18.6%;           /* border #2E2E31 */
-    --input: 240 3.2% 18.6%;
-    --ring: 219 100% 65.5%;
+    --border: 30 5% 19%;
+    --input: 30 5% 21%;
+    --ring: 168 42% 52%;
+    --warning: 38 80% 58%;
+    --success: 150 38% 52%;
   }
 }

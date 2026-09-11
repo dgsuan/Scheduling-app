@@ -47,21 +47,25 @@ export function formatShortDate(iso: string): string {
   });
 }
 
-export type MonthCell = { day: number; iso: string; weekday: Weekday };
+export type MonthCell = { day: number; iso: string; weekday: Weekday; outside?: boolean };
 
-/** Month laid out Sunday-first in whole weeks; blanks are null. */
-export function buildMonthCells(year: number, month: number): (MonthCell | null)[] {
+function cellFor(d: Date, outside?: boolean): MonthCell {
+  return { day: d.getDate(), iso: isoDate(d), weekday: d.getDay() as Weekday, outside };
+}
+
+/**
+ * Month laid out Sunday-first in whole weeks. Squares outside the month
+ * are null, or — with `includeOutside` — the neighbouring months' days
+ * flagged `outside: true`.
+ */
+export function buildMonthCells(year: number, month: number, includeOutside = false): (MonthCell | null)[] {
   const leading = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells: (MonthCell | null)[] = Array.from({ length: leading }, () => null);
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push({
-      day: d,
-      iso: isoDate(new Date(year, month, d)),
-      weekday: new Date(year, month, d).getDay() as Weekday,
-    });
-  }
-  while (cells.length % 7 !== 0) cells.push(null);
+  const cells: (MonthCell | null)[] = [];
+  for (let i = leading; i > 0; i--) cells.push(includeOutside ? cellFor(new Date(year, month, 1 - i), true) : null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(cellFor(new Date(year, month, d)));
+  for (let n = 1; cells.length % 7 !== 0; n++)
+    cells.push(includeOutside ? cellFor(new Date(year, month + 1, n), true) : null);
   return cells;
 }
 

@@ -13,7 +13,8 @@ import {
 } from "react-native";
 
 import { colors, radius, spacing, type Palette } from "@/constants/theme";
-import { ThemeToggle, useTheme } from "@/context/theme";
+import { useTheme } from "@/context/theme";
+import { ScreenHeader } from "@/components/ScreenHeader";
 import type { Course, Meeting, Weekday } from "@/context/store";
 import { useCourses } from "@/context/store";
 import {
@@ -364,14 +365,10 @@ export default function CoursesScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>My Courses</Text>
-          <ThemeToggle />
-        </View>
-        <Text style={styles.subtitle}>
-          Add the classes you&apos;re enrolled in. The Schedule and Calendar tabs
-          read from this list.
-        </Text>
+        <ScreenHeader
+          title="Courses"
+          subtitle="The classes you're enrolled in. Schedule and Calendar read from this list."
+        />
 
         {sorted.length === 0 ? (
           <View style={styles.emptyCard}>
@@ -453,8 +450,15 @@ export default function CoursesScreen() {
 
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
-  screen: { flex: 1, backgroundColor: t.bg },
-  content: { padding: spacing.lg, paddingBottom: 120 },
+  screen: { flex: 1, backgroundColor: "transparent" },
+  content: {
+    padding: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: 120,
+    width: "100%",
+    maxWidth: 760,
+    alignSelf: "center",
+  },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -492,14 +496,14 @@ const makeStyles = (t: Palette) =>
   courseMeta: { fontSize: 13, color: t.muted, marginTop: 2 },
   courseMeeting: { fontSize: 13, color: t.muted, marginTop: spacing.xs },
   cardActions: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.md },
-  actionEdit: { fontSize: 13, fontWeight: "700", color: colors.accent },
-  actionRemove: { fontSize: 13, fontWeight: "700", color: colors.danger },
+  actionEdit: { fontSize: 13, fontWeight: "700", color: t.accent },
+  actionRemove: { fontSize: 13, fontWeight: "700", color: t.danger },
 
   fab: {
     position: "absolute",
     right: spacing.lg,
     bottom: spacing.lg,
-    backgroundColor: colors.accent,
+    backgroundColor: t.accent,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderRadius: 28,
@@ -571,7 +575,7 @@ const makeStyles = (t: Palette) =>
     overflow: "hidden",
   },
   periodBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm + 2, backgroundColor: t.surface },
-  periodBtnOn: { backgroundColor: colors.accent },
+  periodBtnOn: { backgroundColor: t.accent },
   periodText: { fontSize: 12, fontWeight: "700", color: t.text },
   periodTextOn: { color: "#FFFFFF" },
 
@@ -594,7 +598,7 @@ const makeStyles = (t: Palette) =>
     alignItems: "center",
     justifyContent: "space-between",
   },
-  addMeeting: { fontSize: 13, fontWeight: "700", color: colors.accent, marginTop: spacing.md },
+  addMeeting: { fontSize: 13, fontWeight: "700", color: t.accent, marginTop: spacing.md },
   meetingCard: {
     borderWidth: 1,
     borderColor: t.border,
@@ -603,7 +607,7 @@ const makeStyles = (t: Palette) =>
     marginTop: spacing.sm,
   },
   meetingRemove: { alignSelf: "flex-end" },
-  meetingRemoveText: { fontSize: 12, fontWeight: "700", color: colors.danger },
+  meetingRemoveText: { fontSize: 12, fontWeight: "700", color: t.danger },
   dayChipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
   dayChip: {
     paddingHorizontal: spacing.sm + 2,
@@ -613,7 +617,7 @@ const makeStyles = (t: Palette) =>
     borderWidth: 1,
     borderColor: t.border,
   },
-  dayChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  dayChipOn: { backgroundColor: t.accent, borderColor: t.accent },
   dayChipText: { fontSize: 13, fontWeight: "600", color: t.text },
   dayChipTextOn: { color: "#FFFFFF" },
 
@@ -626,6 +630,6 @@ const makeStyles = (t: Palette) =>
   button: { flex: 1, paddingVertical: spacing.sm + 4, borderRadius: radius.sm, alignItems: "center" },
   buttonSecondary: { backgroundColor: t.surface, borderWidth: 1, borderColor: t.border },
   buttonSecondaryText: { color: t.text, fontWeight: "700" },
-  buttonPrimary: { backgroundColor: colors.accent },
+  buttonPrimary: { backgroundColor: t.accent },
   buttonPrimaryText: { color: "#FFFFFF", fontWeight: "700" },
 });

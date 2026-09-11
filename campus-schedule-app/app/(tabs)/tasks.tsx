@@ -1,356 +1,330 @@
-import { Pencil, Trash2 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ChevronRight, Flag, Pencil, Trash2 } from "lucide-react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, TextInput, View } from "react-native";
+import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 
+import { ChoicePopover, type Choice } from "@/components/ChoicePopover";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { DatePickerField } from "@/components/DatePickerField";
+import { DueDateButton } from "@/components/DueDateButton";
 import { ItemEditorDialog, type EditorTarget } from "@/components/ItemEditorDialog";
-import { PressableScale } from "@/components/PressableScale";
+import { ScreenHeader } from "@/components/ScreenHeader";
 import { TaskCheckbox } from "@/components/TaskCheckbox";
 import { TimePickerField } from "@/components/TimePickerField";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Text as UIText } from "@/components/ui/text";
-import { colors, radius, spacing, type Palette } from "@/constants/theme";
-import { ThemeToggle, useTheme } from "@/context/theme";
-import { useCourses, useTasks, type Priority, type Task } from "@/context/store";
-import {
-  formatDue,
-  isDueSoon,
-  isOverdue,
-  isoDate,
-  PRIORITY_LABEL,
-  sortTasks,
-  todayIso,
-} from "@/lib/tasks";
+import { Separator } from "@/components/ui/separator";
+import { Text } from "@/components/ui/text";
+import { useTheme } from "@/context/theme";
+import { useCourses, useTasks, type Course, type Priority, type Task } from "@/context/store";
+import { addDaysIso } from "@/lib/calendar";
+import { display12h } from "@/lib/schedule";
+import { formatDue, isDueSoon, isOverdue, isoDate, sortTasks, todayIso } from "@/lib/tasks";
+import { useBreakpoint } from "@/lib/useBreakpoint";
+import { useNow } from "@/lib/useNow";
+import { cn } from "@/lib/utils";
 
-const PRIORITIES: Priority[] = ["low", "medium", "high"];
+// Tasks grouped by urgency. Section titles carry the status (only the
+// Overdue title is tinted), so rows stay calm and readable. Completing a
+// task shows the check first, then lets it glide into Completed.
 
-const priorityColor: Record<Priority, string> = {
-  low: "#8A8F98",
-  medium: colors.holidaySpecial,
-  high: colors.danger,
-};
+type SectionKey = "overdue" | "today" | "tomorrow" | "week" | "later" | "nodate" | "done";
 
-function relativeIso(daysAhead: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + daysAhead);
-  return isoDate(d);
+const SECTIONS: { key: SectionKey; title: string }[] = [
+  { key: "overdue", title: "Overdue" },
+  { key: "today", title: "Today" },
+  { key: "tomorrow", title: "Tomorrow" },
+  { key: "week", title: "Next 7 days" },
+  { key: "later", title: "Later" },
+  { key: "nodate", title: "No date" },
+  { key: "done", title: "Completed" },
+];
+
+const COMPLETE_DELAY_MS = 420;
+
+const PRIORITY_CHOICES: Choice<Priority>[] = [
+  { value: "high", label: "High priority", iconClassName: "text-destructive" },
+  { value: "medium", label: "Medium priority", iconClassName: "text-warning" },
+  { value: "low", label: "Low priority", iconClassName: "text-muted-foreground" },
+];
+
+function sectionOf(task: Task, now: Date): SectionKey {
+  if (task.done) return "done";
+  if (!task.due) return "nodate";
+  if (isOverdue(task, now)) return "overdue";
+  const today = isoDate(now);
+  if (task.due === today) return "today";
+  if (task.due === addDaysIso(today, 1)) return "tomorrow";
+  if (task.due <= addDaysIso(today, 7)) return "week";
+  return "later";
 }
 
-type DueChoice = "none" | "today" | "tomorrow" | "week" | "custom";
-type Filter = "all" | "active" | "soon" | "completed";
+function dueLabel(task: Task, section: SectionKey, now: Date): string | null {
+  if (!task.due) return null;
+  if (section === "today" || section === "tomorrow") return task.dueTime ? display12h(task.dueTime) : null;
+  return formatDue(task, now);
+}
 
-const FILTER_LABEL: Record<Filter, string> = {
-  all: "All",
-  active: "Active",
-  soon: "Due soon",
-  completed: "Done",
-};
+function TaskRow({
+  task,
+  section,
+  course,
+  now,
+  onToggle,
+  onRename,
+  onEdit,
+  onDelete,
+}: {
+  task: Task;
+  section: SectionKey;
+  course?: Course;
+  now: Date;
+  onToggle: (done: boolean) => void;
+  onRename: (title: string) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const t = useTheme();
+  // Show the tick (and strike-through) before the row moves to Completed.
+  const [completing, setCompleting] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const checked = task.done || completing;
+  const toggle = (value: boolean) => {
+    clearTimeout(timer.current);
+    if (value && !task.done) {
+      setCompleting(true);
+      timer.current = setTimeout(() => onToggle(true), COMPLETE_DELAY_MS);
+    } else {
+      setCompleting(false);
+      onToggle(value);
+    }
+  };
+
+  const soon = section === "today" && isDueSoon(task, now);
+  const label = dueLabel(task, section, now);
+
+  return (
+    <Animated.View
+      entering={FadeIn.duration(220)}
+      exiting={FadeOut.duration(160)}
+      layout={LinearTransition.springify().damping(22).stiffness(240)}
+    >
+      <View className="group flex-row items-start gap-3 rounded-lg px-2 py-2.5 web:transition-colors web:duration-150 web:hover:bg-accent/50">
+        <View className="pt-0.5">
+          <TaskCheckbox checked={checked} onCheckedChange={toggle} label={task.title || "Task"} />
+        </View>
+        <View className="flex-1 gap-0.5">
+          <TextInput
+            value={task.title}
+            onChangeText={onRename}
+            accessibilityLabel="Task title"
+            placeholder="Untitled task"
+            placeholderTextColor={t.muted}
+            className={cn(
+              "text-foreground p-0 text-[15px] leading-5 web:outline-none web:transition-colors",
+              checked && "text-muted-foreground line-through"
+            )}
+          />
+          {label || course || task.priority === "high" ? (
+            <View className="flex-row flex-wrap items-center gap-x-3 gap-y-0.5">
+              {label ? (
+                <Text
+                  className={cn(
+                    "text-[13px] tabular-nums",
+                    section === "overdue" ? "text-destructive" : soon ? "text-warning font-medium" : "text-muted-foreground"
+                  )}
+                >
+                  {label}
+                </Text>
+              ) : null}
+              {course ? (
+                <View className="flex-row items-center gap-1.5">
+                  <View className="size-1.5 rounded-full" style={{ backgroundColor: course.color }} />
+                  <Text className="text-muted-foreground text-[13px]">{course.code}</Text>
+                </View>
+              ) : null}
+              {task.priority === "high" && !task.done ? (
+                <View className="flex-row items-center gap-1">
+                  <Icon as={Flag} size={12} className="text-destructive" />
+                  <Text className="text-muted-foreground text-[13px]">High</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+        <View className="flex-row items-center web:opacity-0 web:transition-opacity web:group-hover:opacity-100 web:group-focus-within:opacity-100">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onPress={onEdit} accessibilityLabel={`Edit ${task.title || "task"}`}>
+            <Icon as={Pencil} size={15} className="text-muted-foreground" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onPress={onDelete} accessibilityLabel={`Delete ${task.title || "task"}`}>
+            <Icon as={Trash2} size={15} className="text-muted-foreground" />
+          </Button>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
 
 export default function TasksScreen() {
   const { tasks, addTask, updateTask, removeTask, clearCompletedTasks } = useTasks();
   const { courses } = useCourses();
-  const th = useTheme();
-  const styles = useMemo(() => makeStyles(th), [th]);
+  const t = useTheme();
+  const { desktop } = useBreakpoint();
+  const now = useNow();
 
   const [title, setTitle] = useState("");
-  const [priority, setPriority] = useState<Priority>("medium");
-  const [dueChoice, setDueChoice] = useState<DueChoice>("today");
-  const [customDate, setCustomDate] = useState<string | undefined>(undefined);
+  const [due, setDue] = useState<string | undefined>(() => todayIso());
   const [dueTime, setDueTime] = useState<string | undefined>(undefined);
+  const [priority, setPriority] = useState<Priority>("medium");
   const [courseId, setCourseId] = useState<string | undefined>(undefined);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [showDone, setShowDone] = useState(false);
   const [editing, setEditing] = useState<EditorTarget | null>(null);
   const [deleting, setDeleting] = useState<Task | null>(null);
 
-  // Re-evaluate "due soon" / "overdue" as time passes.
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 30_000);
-    return () => clearInterval(id);
-  }, []);
-
-  const resolvedDue = (): string | undefined => {
-    switch (dueChoice) {
-      case "today":
-        return todayIso();
-      case "tomorrow":
-        return relativeIso(1);
-      case "week":
-        return relativeIso(7);
-      case "custom":
-        return customDate;
-      default:
-        return undefined;
-    }
-  };
-
   const submit = () => {
-    const t = title.trim();
-    if (!t) return;
-    const due = resolvedDue();
-    addTask({ title: t, priority, due, dueTime: due ? dueTime : undefined, done: false, courseId });
+    const text = title.trim();
+    if (!text) return;
+    addTask({ title: text, priority, due, dueTime: due ? dueTime : undefined, done: false, courseId });
     setTitle("");
   };
 
-  const needsAttention = (t: Task) => isOverdue(t, now) || isDueSoon(t, now);
-
-  const counts = useMemo(() => {
-    const active = tasks.filter((t) => !t.done).length;
-    return {
-      all: tasks.length,
-      active,
-      soon: tasks.filter(needsAttention).length,
-      completed: tasks.length - active,
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const grouped = useMemo(() => {
+    const map = new Map<SectionKey, Task[]>();
+    for (const task of sortTasks(tasks)) {
+      const key = sectionOf(task, now);
+      map.set(key, [...(map.get(key) ?? []), task]);
+    }
+    return map;
   }, [tasks, now]);
 
-  const visible = useMemo(() => {
-    const filtered = tasks.filter((t) =>
-      filter === "all"
-        ? true
-        : filter === "active"
-          ? !t.done
-          : filter === "soon"
-            ? needsAttention(t)
-            : t.done
-    );
-    return sortTasks(filtered);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, filter, now]);
+  const courseById = useMemo(() => Object.fromEntries(courses.map((c) => [c.id, c])), [courses]);
+  const open = tasks.filter((x) => !x.done).length;
+  const overdueCount = grouped.get("overdue")?.length ?? 0;
+  const doneCount = grouped.get("done")?.length ?? 0;
 
-  const courseById = useMemo(
-    () => Object.fromEntries(courses.map((c) => [c.id, c])),
-    [courses]
-  );
+  const courseChoices: Choice<string | undefined>[] = [
+    { value: undefined, label: "No course" },
+    ...courses.map((c) => ({ value: c.id as string | undefined, label: c.code, color: c.color })),
+  ];
 
   return (
-    <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>Tasks</Text>
-          <ThemeToggle />
-        </View>
-        <Text style={styles.subtitle}>Everything you need to get done.</Text>
+    <View className="flex-1">
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName={cn("w-full max-w-[760px] self-center pb-16", desktop ? "px-10 pt-10" : "px-5 pt-6")}
+        keyboardShouldPersistTaps="handled"
+      >
+        <ScreenHeader
+          title="Tasks"
+          subtitle={
+            tasks.length
+              ? `${open} open${overdueCount ? ` · ${overdueCount} overdue` : ""}${doneCount ? ` · ${doneCount} done` : ""}`
+              : "Everything you need to get done."
+          }
+        />
 
-        {/* Quick add */}
-        <View style={styles.addCard}>
-          <TextInput
-            style={styles.addInput}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="What needs to be done?"
-            placeholderTextColor={th.muted}
-            onSubmitEditing={submit}
-            returnKeyType="done"
-            accessibilityLabel="New task title"
-          />
-
-          <View style={styles.chipRow}>
-            {(
-              [
-                ["none", "No date"],
-                ["today", "Today"],
-                ["tomorrow", "Tomorrow"],
-                ["week", "In 1 week"],
-                ["custom", "Pick date…"],
-              ] as [DueChoice, string][]
-            ).map(([key, label]) => (
-              <PressableScale
-                key={key}
-                onPress={() => setDueChoice(key)}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: dueChoice === key }}
-                className="web:hover:opacity-80"
-                style={[styles.chip, dueChoice === key && styles.chipOn]}
-              >
-                <Text style={[styles.chipText, dueChoice === key && styles.chipTextOn]}>
-                  {label}
-                </Text>
-              </PressableScale>
-            ))}
+        {/* Composer */}
+        <View className="bg-card border-border rounded-xl border shadow-sm shadow-black/5">
+          <View className="flex-row items-center gap-3 px-4">
+            <View className="border-muted-foreground/40 size-5 rounded-md border border-dashed" />
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              onSubmitEditing={submit}
+              returnKeyType="done"
+              placeholder="Add a task…"
+              placeholderTextColor={t.muted}
+              accessibilityLabel="New task title"
+              className="text-foreground h-12 flex-1 text-[15px] web:outline-none"
+            />
           </View>
-
-          {dueChoice !== "none" ? (
-            <View style={styles.chipRow}>
-              {dueChoice === "custom" ? (
-                <DatePickerField value={customDate} onChange={setCustomDate} accessibilityLabel="Due date" />
-              ) : null}
-              <TimePickerField value={dueTime} onChange={setDueTime} placeholder="Add time" accessibilityLabel="Due time" />
-            </View>
-          ) : null}
-
-          <View style={styles.chipRow}>
-            {PRIORITIES.map((p) => (
-              <PressableScale
-                key={p}
-                onPress={() => setPriority(p)}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: priority === p }}
-                accessibilityLabel={`${PRIORITY_LABEL[p]} priority`}
-                className="web:hover:opacity-80"
-                style={[
-                  styles.chip,
-                  priority === p && { backgroundColor: priorityColor[p], borderColor: priorityColor[p] },
-                ]}
-              >
-                <Text style={[styles.chipText, priority === p && styles.chipTextOn]}>
-                  {PRIORITY_LABEL[p]}
-                </Text>
-              </PressableScale>
-            ))}
-          </View>
-
-          {courses.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-              <PressableScale
-                onPress={() => setCourseId(undefined)}
-                style={[styles.chip, courseId === undefined && styles.chipOn]}
-              >
-                <Text style={[styles.chipText, courseId === undefined && styles.chipTextOn]}>
-                  No course
-                </Text>
-              </PressableScale>
-              {courses.map((c) => (
-                <PressableScale
-                  key={c.id}
-                  onPress={() => setCourseId(c.id)}
-                  style={[
-                    styles.chip,
-                    courseId === c.id && { backgroundColor: c.color, borderColor: c.color },
-                  ]}
-                >
-                  <Text style={[styles.chipText, courseId === c.id && styles.chipTextOn]}>
-                    {c.code}
-                  </Text>
-                </PressableScale>
-              ))}
-            </ScrollView>
-          ) : null}
-
-          <Button onPress={submit} disabled={!title.trim()} className="mt-1">
-            <UIText>Add task</UIText>
-          </Button>
-        </View>
-
-        {/* Filters */}
-        <View style={styles.filterRow}>
-          <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
-            <TabsList>
-              {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
-                <TabsTrigger key={f} value={f}>
-                  <UIText>
-                    {FILTER_LABEL[f]} {counts[f] ? `(${counts[f]})` : ""}
-                  </UIText>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          {counts.completed > 0 ? (
-            <Button variant="link" size="sm" onPress={clearCompletedTasks} className="ml-auto">
-              <UIText>Clear completed</UIText>
+          <Separator className="bg-border/70" />
+          <View className="flex-row flex-wrap items-center gap-1 px-2 py-1.5">
+            <DueDateButton value={due} onChange={setDue} />
+            {due ? (
+              <TimePickerField value={dueTime} onChange={setDueTime} placeholder="Time" variant="ghost" accessibilityLabel="Due time" />
+            ) : null}
+            <ChoicePopover value={priority} options={PRIORITY_CHOICES} onChange={setPriority} icon={Flag} accessibilityLabel="Priority" />
+            {courses.length ? (
+              <ChoicePopover value={courseId} options={courseChoices} onChange={setCourseId} accessibilityLabel="Course" />
+            ) : null}
+            <View className="flex-1" />
+            <Button size="sm" onPress={submit} disabled={!title.trim()} className="px-4">
+              <Text>Add</Text>
             </Button>
-          ) : null}
+          </View>
         </View>
 
-        {/* List */}
-        {visible.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>
-              {filter === "completed"
-                ? "Nothing completed yet."
-                : filter === "soon"
-                  ? "Nothing due in the next 24 hours. 🎉"
-                  : "No tasks — add one above."}
-            </Text>
+        {/* Sections */}
+        {tasks.length === 0 ? (
+          <View className="items-center py-16">
+            <Text className="font-display text-xl font-semibold">A clean slate.</Text>
+            <Text className="text-muted-foreground mt-1 text-sm">Add your first task above.</Text>
           </View>
         ) : (
-          visible.map((task) => {
-            const course = task.courseId ? courseById[task.courseId] : undefined;
-            const overdue = isOverdue(task, now);
-            const soon = !overdue && isDueSoon(task, now);
-            return (
-              <View
-                key={task.id}
-                className="web:transition-colors web:hover:bg-accent/40 rounded-lg"
-                style={[styles.taskRow, task.done && styles.taskRowDone]}
-              >
-                <View style={styles.checkWrap}>
-                  <TaskCheckbox
-                    checked={task.done}
-                    onCheckedChange={(done) => updateTask(task.id, { done })}
-                    label={task.title || "Task"}
-                  />
-                </View>
-
-                <View style={styles.taskMain}>
-                  <TextInput
-                    style={[styles.taskTitle, task.done && styles.taskTitleDone]}
-                    value={task.title}
-                    onChangeText={(v) => updateTask(task.id, { title: v })}
-                    accessibilityLabel="Task title"
-                  />
-                  <View style={styles.taskMeta}>
-                    <View style={[styles.dot, { backgroundColor: priorityColor[task.priority] }]} />
-                    <Text style={styles.metaText}>{PRIORITY_LABEL[task.priority]}</Text>
-                    {task.due ? (
-                      <Text
-                        style={[
-                          styles.metaText,
-                          !task.done && overdue && styles.metaOverdue,
-                          !task.done && soon && styles.metaSoon,
-                        ]}
+          <LayoutAnimationConfig skipEntering>
+            {SECTIONS.map(({ key, title: sectionTitle }) => {
+              const list = grouped.get(key);
+              if (!list?.length) return null;
+              const isDone = key === "done";
+              return (
+                <Animated.View key={key} layout={LinearTransition.springify().damping(22).stiffness(240)}>
+                  <View className="flex-row items-center gap-2 px-2 pb-1 pt-7">
+                    {isDone ? (
+                      <Pressable
+                        onPress={() => setShowDone((v) => !v)}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: showDone }}
+                        className="flex-row items-center gap-1.5 rounded web:transition-opacity web:hover:opacity-80"
                       >
-                        · Due {formatDue(task, now)}
-                      </Text>
-                    ) : null}
-                    {course ? (
-                      <Text style={[styles.metaText, { color: course.color }]}>· {course.code}</Text>
-                    ) : null}
-                    {!task.done && overdue ? (
-                      <Badge variant="destructive">
-                        <UIText>Overdue</UIText>
-                      </Badge>
-                    ) : !task.done && soon ? (
-                      <Badge variant="outline" style={{ borderColor: colors.holidaySpecial }}>
-                        <UIText style={{ color: colors.holidaySpecial }}>Due soon</UIText>
-                      </Badge>
+                        <View style={{ transform: [{ rotate: showDone ? "90deg" : "0deg" }] }}>
+                          <Icon as={ChevronRight} size={14} className="text-muted-foreground" />
+                        </View>
+                        <Text className="text-muted-foreground text-[13px] font-semibold">{sectionTitle}</Text>
+                        <Text className="text-muted-foreground text-[13px] tabular-nums">{list.length}</Text>
+                      </Pressable>
+                    ) : (
+                      <>
+                        <Text className={cn("text-[13px] font-semibold", key === "overdue" ? "text-destructive" : "text-foreground")}>
+                          {sectionTitle}
+                        </Text>
+                        <Text className="text-muted-foreground text-[13px] tabular-nums">{list.length}</Text>
+                      </>
+                    )}
+                    <View className="flex-1" />
+                    {isDone && showDone ? (
+                      <Button variant="link" size="sm" className="h-6 px-1" onPress={clearCompletedTasks}>
+                        <Text className="text-xs">Clear</Text>
+                      </Button>
                     ) : null}
                   </View>
-                </View>
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onPress={() => setEditing({ mode: "edit", kind: "task", task })}
-                  accessibilityLabel={`Edit ${task.title || "task"}`}
-                >
-                  <Icon as={Pencil} size={15} className="text-muted-foreground" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onPress={() => setDeleting(task)}
-                  accessibilityLabel={`Delete ${task.title || "task"}`}
-                >
-                  <Icon as={Trash2} size={15} className="text-muted-foreground" />
-                </Button>
-              </View>
-            );
-          })
+                  {!isDone || showDone
+                    ? list.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          section={key}
+                          course={task.courseId ? courseById[task.courseId] : undefined}
+                          now={now}
+                          onToggle={(done) => updateTask(task.id, { done })}
+                          onRename={(v) => updateTask(task.id, { title: v })}
+                          onEdit={() => setEditing({ mode: "edit", kind: "task", task })}
+                          onDelete={() => setDeleting(task)}
+                        />
+                      ))
+                    : null}
+                </Animated.View>
+              );
+            })}
+          </LayoutAnimationConfig>
         )}
       </ScrollView>
 
       <ItemEditorDialog target={editing} onClose={() => setEditing(null)} />
       <ConfirmDialog
         open={!!deleting}
-        onOpenChange={(open) => !open && setDeleting(null)}
+        onOpenChange={(o) => !o && setDeleting(null)}
         title="Delete task?"
         description={`"${deleting?.title || "This task"}" will be removed. This can't be undone.`}
         onConfirm={() => {
@@ -361,88 +335,3 @@ export default function TasksScreen() {
     </View>
   );
 }
-
-const makeStyles = (t: Palette) =>
-  StyleSheet.create({
-    screen: { flex: 1, backgroundColor: t.bg },
-    content: {
-      padding: spacing.lg,
-      paddingBottom: spacing.xl,
-      width: "100%",
-      maxWidth: 760,
-      alignSelf: "center",
-    },
-    headerRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    title: { fontSize: 24, fontWeight: "700", color: t.text },
-    subtitle: { fontSize: 13, color: t.muted, marginTop: spacing.xs, marginBottom: spacing.lg },
-
-    addCard: {
-      backgroundColor: t.surface,
-      borderRadius: radius.md,
-      padding: spacing.md,
-      gap: spacing.sm,
-    },
-    addInput: {
-      borderWidth: 1,
-      borderColor: t.border,
-      borderRadius: radius.sm,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm + 2,
-      fontSize: 15,
-      color: t.text,
-      backgroundColor: t.inputBg,
-    },
-    chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, alignItems: "center" },
-    chip: {
-      paddingHorizontal: spacing.sm + 2,
-      paddingVertical: spacing.xs + 2,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: t.border,
-      backgroundColor: t.inputBg,
-    },
-    chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-    chipText: { fontSize: 12, fontWeight: "600", color: t.text },
-    chipTextOn: { color: "#FFFFFF" },
-
-    filterRow: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: spacing.xs,
-      alignItems: "center",
-      marginTop: spacing.lg,
-      marginBottom: spacing.sm,
-    },
-
-    emptyCard: {
-      backgroundColor: t.surface,
-      borderRadius: radius.md,
-      padding: spacing.xl,
-      alignItems: "center",
-    },
-    emptyText: { fontSize: 14, color: t.muted },
-
-    taskRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.sm,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.xs,
-      borderBottomWidth: 1,
-      borderBottomColor: t.border,
-    },
-    taskRowDone: { opacity: 0.7 },
-    checkWrap: { paddingTop: 2 },
-    taskMain: { flex: 1 },
-    taskTitle: { fontSize: 15, color: t.text, padding: 0 },
-    taskTitleDone: { textDecorationLine: "line-through", color: t.muted },
-    taskMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.xs, marginTop: 4 },
-    dot: { width: 7, height: 7, borderRadius: 3.5 },
-    metaText: { fontSize: 12, color: t.muted },
-    metaOverdue: { color: colors.danger, fontWeight: "700" },
-    metaSoon: { color: colors.holidaySpecial, fontWeight: "600" },
-  });

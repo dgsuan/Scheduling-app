@@ -187,3 +187,56 @@ deliberately not scaffolded now since nothing needs them yet.
 Authentication, push notifications, and offline sync are deliberately not
 on this roadmap — none of the 4 screens need them to function at a basic
 level, per the project constraints.
+
+## 5. Design system
+
+The UI is styled two ways on purpose, and both read the same colors:
+
+- **NativeWind (Tailwind for React Native)** with **React Native
+  Reusables** — the shadcn/ui component set ported to React Native — under
+  `components/ui/`. Used for anything new or rebuilt.
+- **`StyleSheet` + the `Palette` object** (`useTheme()`), still used by the
+  older screens (Courses, the Notes canvas internals). Both get their
+  colors from the same source, so nothing drifts.
+
+### Colors: one identity, shifting atmosphere
+
+`constants/theme.ts` is the single source of color. `buildTheme(scheme,
+timeOfDay)` returns:
+
+- `tokens` — CSS custom properties (`--background`, `--primary`, …) that
+  `tailwind.config.js` maps to Tailwind classes (`bg-card`, `text-muted-foreground`).
+- `palette` — the same colors as hex, for `StyleSheet` code.
+
+Neutrals are warm stone; `--primary` is a deep teal; `--warning` (ochre)
+means "due soon" and `--destructive` (brick) means "overdue/delete".
+
+**Time of day** (`lib/timeOfDay.ts`) returns `earlyMorning | morning |
+afternoon | evening | night`, and only *re-tints* those same tokens —
+warmer and brighter in the morning, softer in the evening, dim and
+low-contrast at night (a light background never stays harsh white). It is
+never a separate theme, and components never branch on it.
+
+`context/theme.tsx` owns light/dark (OS default, then the user's saved
+choice) and the period, applying tokens as CSS variables on `<html>` (web)
+and via NativeWind's `vars()` (native). One timer fires at the next period
+boundary — nothing polls. `components/AmbientBackground.tsx` paints the
+period's soft wash down from the top of the window.
+
+### Motion
+
+Reanimated is already present (NativeWind depends on it); no other
+animation library is needed. Springs are short and purposeful: `PopIn` for
+things that appear, `TaskCheckbox` for completion, the sliding indicator in
+`AppTabBar`, and a lift while dragging notes. On web, hover/press use CSS
+transitions via `web:` classes. All of it respects Reduce Motion.
+
+### Gotchas worth knowing
+
+- Reanimated's `Animated.View` **ignores `className`** — animate the outer
+  view, style an inner one.
+- Gesture Handler callbacks need `.runOnJS(true)` here, since Reanimated
+  would otherwise run them as UI-thread worklets.
+- React Native Web gives every `View` its own stacking context, so
+  overlays (the calendar day popover) need a `zIndex` on an ancestor.
+- `Alert.alert` does nothing on web — use `ConfirmDialog`.
