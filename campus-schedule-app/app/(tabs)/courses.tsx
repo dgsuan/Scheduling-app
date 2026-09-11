@@ -25,6 +25,7 @@ import {
   type Period,
 } from "@/lib/schedule";
 import { ColorPicker } from "@/components/ColorPicker";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const DAY_CHIPS: { value: Weekday; label: string }[] = [
   { value: 1, label: "M" },
@@ -356,12 +357,9 @@ export default function CoursesScreen() {
     setEditing(course);
     setFormOpen(true);
   };
-  const confirmRemove = (course: Course) => {
-    Alert.alert("Remove course", `Remove ${course.code}?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => removeCourse(course.id) },
-    ]);
-  };
+  // AlertDialog instead of Alert.alert, which does nothing on web.
+  const [removing, setRemoving] = useState<Course | null>(null);
+  const confirmRemove = (course: Course) => setRemoving(course);
 
   return (
     <View style={styles.screen}>
@@ -437,6 +435,18 @@ export default function CoursesScreen() {
           }}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={!!removing}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title="Remove course?"
+        description={`Remove ${removing?.code ?? "this course"}? Its notes canvas is deleted and its tasks are kept without a course.`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (removing) removeCourse(removing.id);
+          setRemoving(null);
+        }}
+      />
     </View>
   );
 }

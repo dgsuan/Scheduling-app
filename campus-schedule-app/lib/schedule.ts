@@ -145,7 +145,9 @@ export function computeNowAndNext(courses: Course[], now: Date): NowAndNext {
     todays.find((o) => nowMin >= o.startMin && nowMin < o.endMin) ?? null;
 
   let next: (ClassOccurrence & { daysAhead: number }) | null = null;
-  for (let ahead = 0; ahead < 7; ahead++) {
+  // ahead = 7 is the same weekday next week, so a class that meets once a
+  // week is still found after today's session has ended.
+  for (let ahead = 0; ahead <= 7; ahead++) {
     const day = (((today + ahead) % 7) + 7) % 7 as Weekday;
     const occ = occurrencesOnDay(courses, day);
     const candidate =
@@ -157,6 +159,15 @@ export function computeNowAndNext(courses: Course[], now: Date): NowAndNext {
   }
 
   return { ongoing, next };
+}
+
+/** 42 -> "42 min", 60 -> "1 hr", 95 -> "1 hr 35 min". */
+export function formatDuration(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest ? `${h} hr ${rest} min` : `${h} hr`;
 }
 
 export function relativeDayLabel(daysAhead: number, day: Weekday): string {

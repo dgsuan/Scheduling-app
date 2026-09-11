@@ -1,3 +1,6 @@
+import "../global.css";
+
+import { PortalHost } from "@rn-primitives/portal";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -17,6 +20,8 @@ function ThemedShell() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }}>
         <Stack.Screen name="(tabs)" />
       </Stack>
+      {/* Mount point for Reusables overlays (dialogs, popovers, selects). */}
+      <PortalHost />
     </>
   );
 }

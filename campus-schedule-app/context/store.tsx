@@ -48,7 +48,14 @@ export type TodoEntry = { id: string; text: string; done: boolean };
 type CanvasBase = { id: string; x: number; y: number };
 
 export type CanvasItem =
-  | (CanvasBase & { kind: "text"; text: string; color: string })
+  | (CanvasBase & {
+      kind: "text";
+      text: string;
+      color: string;
+      /** Optional ISO dates — a dated note also shows on the Calendar. */
+      date?: string;
+      endDate?: string;
+    })
   | (CanvasBase & {
       kind: "todo";
       title: string;
@@ -97,10 +104,33 @@ export type Task = {
   id: string;
   title: string;
   due?: string; // ISO "YYYY-MM-DD"
+  /** Optional deadline time, stored 24h "HH:MM". Absent = end of day. */
+  dueTime?: string;
+  /** Optional ISO start date when the task spans several days. */
+  start?: string;
   priority: Priority;
   done: boolean;
   courseId?: string;
   createdAt: number;
+};
+
+// --- Calendar events ---------------------------------------------------
+
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  start: string; // ISO "YYYY-MM-DD"
+  end: string; // ISO "YYYY-MM-DD", inclusive, >= start
+  /** Both times set = timed event (stored 24h "HH:MM"); otherwise all-day. */
+  startTime?: string;
+  endTime?: string;
+  createdAt: number;
+};
+
+/** A text note (from any canvas) that carries a date. */
+export type DatedNote = Extract<CanvasItem, { kind: "text" }> & {
+  canvasId: string;
+  date: string;
 };
 
 // --- Store shape -----------------------------------------------------
@@ -130,11 +160,17 @@ type StoreShape = {
   updateTask: (id: string, patch: Partial<Omit<Task, "id">>) => void;
   removeTask: (id: string) => void;
   clearCompletedTasks: () => void;
+
+  events: CalendarEvent[];
+  addEvent: (event: Omit<CalendarEvent, "id" | "createdAt">) => void;
+  updateEvent: (id: string, patch: Partial<Omit<CalendarEvent, "id">>) => void;
+  removeEvent: (id: string) => void;
 };
 
 const COURSES_KEY = "campus-schedule:courses:v1";
 const CANVASES_KEY = "campus-schedule:canvases:v2";
 const TASKS_KEY = "campus-schedule:tasks:v1";
+const EVENTS_KEY = "campus-schedule:events:v1";
 
 // Migration: an earlier build stored loose `strokes` per canvas. Fold any
 // such strokes into a single movable drawing so old notes aren't lost.
@@ -208,20 +244,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [canvases, setCanvases] = useState<Record<string, CanvasData>>({});
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [rawCourses, rawCanvases, rawTasks] = await Promise.all([
+        const [rawCourses, rawCanvases, rawTasks, rawEvents] = await Promise.all([
           AsyncStorage.getItem(COURSES_KEY),
           AsyncStorage.getItem(CANVASES_KEY),
           AsyncStorage.getItem(TASKS_KEY),
+          AsyncStorage.getItem(EVENTS_KEY),
         ]);
         if (cancelled) return;
         setCourses(rawCourses ? (JSON.parse(rawCourses) as Course[]) : SEED_COURSES);
         setCanvases(rawCanvases ? normalizeCanvases(JSON.parse(rawCanvases)) : {});
         setTasks(rawTasks ? (JSON.parse(rawTasks) as Task[]) : []);
+        setEvents(rawEvents ? (JSON.parse(rawEvents) as CalendarEvent[]) : []);
       } catch {
         if (!cancelled) {
           setCourses(SEED_COURSES);
@@ -247,7 +286,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(COURSES_KEY, JSON.stringify(courses)).catch(() => {});
     AsyncStorage.setItem(CANVASES_KEY, JSON.stringify(canvases)).catch(() => {});
     AsyncStorage.setItem(TASKS_KEY, JSON.stringify(tasks)).catch(() => {});
-  }, [ready, courses, canvases, tasks]);
+    AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(events)).catch(() => {});
+  }, [ready, courses, canvases, tasks, events]);
 
   // Courses ----------------------------------------------------------
   const addCourse = useCallback((course: Omit<Course, "id">) => {
@@ -405,6 +445,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTasks((prev) => prev.filter((t) => !t.done));
   }, []);
 
+  // Events ---------------------------------------------------------
+  const addEvent = useCallback((event: Omit<CalendarEvent, "id" | "createdAt">) => {
+    setEvents((prev) => [...prev, { ...event, id: uid("event"), createdAt: Date.now() }]);
+  }, []);
+  const updateEvent = useCallback(
+    (id: string, patch: Partial<Omit<CalendarEvent, "id">>) => {
+      setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    },
+    []
+  );
+  const removeEvent = useCallback((id: string) => {
+    setEvents((prev) => prev.filter((e) => e.id !== id));
+  }, []);
+
   const value = useMemo<StoreShape>(
     () => ({
       ready,
@@ -426,6 +480,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateTask,
       removeTask,
       clearCompletedTasks,
+      events,
+      addEvent,
+      updateEvent,
+      removeEvent,
     }),
     [
       ready,
@@ -447,6 +505,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateTask,
       removeTask,
       clearCompletedTasks,
+      events,
+      addEvent,
+      updateEvent,
+      removeEvent,
     ]
   );
 
@@ -494,4 +556,51 @@ export function useTasks() {
     clearCompletedTasks,
   } = useStore();
   return { ready, tasks, addTask, updateTask, removeTask, clearCompletedTasks };
+}
+
+export function useEvents() {
+  const { ready, events, addEvent, updateEvent, removeEvent } = useStore();
+  return { ready, events, addEvent, updateEvent, removeEvent };
+}
+
+/**
+ * Dated text notes gathered from every canvas (General, courses, folders),
+ * so the Calendar can show them without a separate notes model. New ones
+ * land on the General canvas as ordinary sticky notes.
+ */
+export function useDatedNotes() {
+  const s = useStore();
+  const notes = useMemo(() => {
+    const out: DatedNote[] = [];
+    for (const [canvasId, data] of Object.entries(s.canvases)) {
+      for (const it of data.items) {
+        if (it.kind === "text" && it.date) out.push({ ...it, canvasId, date: it.date });
+      }
+    }
+    return out;
+  }, [s.canvases]);
+
+  const addNote = useCallback(
+    (text: string, date: string, endDate?: string) => {
+      const step = (s.canvases[GENERAL_CANVAS]?.items.length ?? 0) % 6;
+      s.addItem(GENERAL_CANVAS, {
+        kind: "text",
+        text,
+        color: colors.noteColors[0],
+        date,
+        endDate,
+        x: 40 + step * 18,
+        y: 40 + step * 18,
+      });
+    },
+    [s]
+  );
+
+  return {
+    notes,
+    addNote,
+    updateNote: (note: DatedNote, patch: Partial<Pick<DatedNote, "text" | "date" | "endDate">>) =>
+      s.updateItem(note.canvasId, note.id, patch),
+    removeNote: (note: DatedNote) => s.removeItem(note.canvasId, note.id),
+  };
 }

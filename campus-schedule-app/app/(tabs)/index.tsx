@@ -14,14 +14,19 @@ import { ThemeToggle, useTheme } from "@/context/theme";
 import { getHolidays, holidaysOn } from "@/constants/holidays";
 import { useCourses, useTasks } from "@/context/store";
 import type { Weekday } from "@/context/store";
+import { NextClassCard } from "@/components/schedule/NextClassCard";
+import { ScheduleNowCard } from "@/components/schedule/ScheduleNowCard";
+import { TaskCheckbox } from "@/components/TaskCheckbox";
 import {
   computeNowAndNext,
+  display12h,
   formatRange,
   occurrencesOnDay,
-  relativeDayLabel,
 } from "@/lib/schedule";
 import {
+  formatDue,
   friendlyDue,
+  isDueSoon,
   isOverdue,
   isoDate,
   sortTasks,
@@ -84,7 +89,8 @@ export default function ScheduleHomeScreen() {
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 30_000);
+    // Frequent enough that "ends in N min" and the Now → Next hand-off stay live.
+    const id = setInterval(() => setNow(new Date()), 15_000);
     return () => clearInterval(id);
   }, []);
 
@@ -110,7 +116,7 @@ export default function ScheduleHomeScreen() {
   );
   const doneToday = todayTasks.filter((t) => t.done).length;
   const pct = todayTasks.length ? doneToday / todayTasks.length : 0;
-  const overdueCount = tasks.filter((t) => isOverdue(t, tIso)).length;
+  const overdueCount = tasks.filter((t) => isOverdue(t, now)).length;
   const dueTodayCount = todayTasks.filter((t) => !t.done).length;
 
   const upcomingTasks = useMemo(
@@ -160,45 +166,14 @@ export default function ScheduleHomeScreen() {
         </View>
       ) : null}
 
-      {/* Up next */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Up Next</Text>
-        {ongoing ? (
-          <>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>NOW</Text>
-            </View>
-            <Text style={styles.bigTitle}>
-              {ongoing.course.code}
-              {ongoing.course.section ? ` (${ongoing.course.section})` : ""}
-            </Text>
-            <Text style={styles.mutedLine}>
-              ⏰ {formatRange(ongoing.meeting.start, ongoing.meeting.end)}
-              {ongoing.meeting.room ? `   📍 ${ongoing.meeting.room}` : ""}
-            </Text>
-          </>
-        ) : next ? (
-          <>
-            <Text style={styles.bigTitle}>
-              {next.course.code}
-              {next.course.section ? ` (${next.course.section})` : ""}
-            </Text>
-            <Text style={styles.mutedLine}>
-              📆 {relativeDayLabel(next.daysAhead, next.day)}   ⏰{" "}
-              {formatRange(next.meeting.start, next.meeting.end)}
-            </Text>
-            {next.meeting.room ? (
-              <Text style={styles.mutedLine}>📍 {next.meeting.room}</Text>
-            ) : null}
-          </>
-        ) : (
-          <Text style={styles.emptyLine}>
-            {courses.length === 0
-              ? "Add courses on the Courses tab."
-              : "No classes in the next 7 days."}
-          </Text>
-        )}
-      </View>
+      {/* Now / next class — derived live from the Courses list */}
+      {ongoing ? <ScheduleNowCard occ={ongoing} now={now} /> : null}
+      <NextClassCard
+        next={next}
+        now={now}
+        hasCourses={courses.length > 0}
+        prominent={!ongoing}
+      />
 
       {/* Progress + glance */}
       <View style={styles.progressRow}>
@@ -264,22 +239,31 @@ export default function ScheduleHomeScreen() {
                 </Text>
               </View>
             ))}
-            {todayTasks.map((t) => (
-              <Pressable
-                key={t.id}
-                style={styles.listRow}
-                onPress={() => updateTask(t.id, { done: !t.done })}
-              >
-                <View style={[styles.checkbox, t.done && styles.checkboxOn]}>
-                  {t.done ? <Text style={styles.checkTick}>✓</Text> : null}
-                </View>
+            {todayTasks.map((task) => (
+              <View key={task.id} style={styles.listRow}>
+                <TaskCheckbox
+                  checked={task.done}
+                  onCheckedChange={(done) => updateTask(task.id, { done })}
+                  label={task.title || "Task"}
+                />
                 <Text
-                  style={[styles.rowText, { flex: 1 }, t.done && styles.rowTextDone]}
+                  style={[styles.rowText, { flex: 1 }, task.done && styles.rowTextDone]}
                   numberOfLines={1}
                 >
-                  {t.title}
+                  {task.title}
                 </Text>
-              </Pressable>
+                {task.dueTime ? (
+                  <Text
+                    style={[
+                      styles.rowTime,
+                      { width: undefined },
+                      isOverdue(task, now) ? styles.statDanger : isDueSoon(task, now) && styles.dueSoon,
+                    ]}
+                  >
+                    {display12h(task.dueTime)}
+                  </Text>
+                ) : null}
+              </View>
             ))}
           </>
         )}
@@ -301,23 +285,23 @@ export default function ScheduleHomeScreen() {
                 </Text>
               </View>
             ))}
-            {upcomingTasks.map((t) => (
-              <Pressable
-                key={t.id}
-                style={styles.listRow}
-                onPress={() => updateTask(t.id, { done: !t.done })}
-              >
-                <View style={[styles.checkbox, t.done && styles.checkboxOn]}>
-                  {t.done ? <Text style={styles.checkTick}>✓</Text> : null}
-                </View>
-                <Text style={styles.rowTime}>{friendlyDue(t.due, now)}</Text>
+            {upcomingTasks.map((task) => (
+              <View key={task.id} style={styles.listRow}>
+                <TaskCheckbox
+                  checked={task.done}
+                  onCheckedChange={(done) => updateTask(task.id, { done })}
+                  label={task.title || "Task"}
+                />
+                <Text style={[styles.rowTime, { width: 128 }]} numberOfLines={1}>
+                  {formatDue(task, now)}
+                </Text>
                 <Text
-                  style={[styles.rowText, { flex: 1 }, t.done && styles.rowTextDone]}
+                  style={[styles.rowText, { flex: 1 }, task.done && styles.rowTextDone]}
                   numberOfLines={1}
                 >
-                  {t.title}
+                  {task.title}
                 </Text>
-              </Pressable>
+              </View>
             ))}
           </>
         )}
@@ -383,6 +367,7 @@ const makeStyles = (t: Palette) =>
   stat: { minWidth: 72 },
   statValue: { color: t.text, fontSize: 22, fontWeight: "700" },
   statDanger: { color: colors.danger },
+  dueSoon: { color: colors.holidaySpecial, fontWeight: "600" },
   statLabel: { color: t.muted, fontSize: 11, marginTop: 2 },
 
   quickRow: { flexDirection: "row", gap: spacing.sm },

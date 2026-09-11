@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { colorScheme as nativewindScheme } from "nativewind";
 import { Appearance, Pressable, StyleSheet, Text } from "react-native";
 
 import { palettes, spacing, type Palette, type ThemeScheme } from "@/constants/theme";
@@ -41,6 +42,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // Keep NativeWind's `dark:` variants and CSS variables (global.css) in
+  // step with this provider, so Reusables components follow the toggle.
+  useEffect(() => {
+    nativewindScheme.set(scheme);
+  }, [scheme]);
 
   const setScheme = (s: ThemeScheme) => {
     setSchemeState(s);

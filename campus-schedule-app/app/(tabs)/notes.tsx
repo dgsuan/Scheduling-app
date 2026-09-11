@@ -44,6 +44,8 @@ import {
 } from "@/context/store";
 import { strokePath, strokesToDrawing, type DrawingShape } from "@/lib/drawing";
 import { ColorPicker } from "@/components/ColorPicker";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { formatShortDate } from "@/lib/calendar";
 
 // Freeform "open canvas" notes (Miro / Apple-Freeform style). One shared
 // canvas plus a canvas per enrolled course, chosen from the tab strip.
@@ -133,6 +135,9 @@ function Draggable({
   const pan = useMemo(
     () =>
       Gesture.Pan()
+        // Reanimated (needed by NativeWind) would otherwise run these
+        // callbacks as UI-thread worklets, where setValue/props can't be called.
+        .runOnJS(true)
         .enabled(!disabled)
         .activeOffsetX([-6, 6])
         .activeOffsetY([-6, 6])
@@ -210,6 +215,12 @@ function TextCard({
         placeholderTextColor="rgba(0,0,0,0.35)"
         multiline
       />
+      {item.date ? (
+        <Text style={cardStyles.noteDate}>
+          📅 {formatShortDate(item.date)}
+          {item.endDate ? ` – ${formatShortDate(item.endDate)}` : ""}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -357,7 +368,13 @@ function FolderCard({
       <View style={cardStyles.itemBar}>
         <View style={cardStyles.barBtn} />
         <View style={cardStyles.barGrip} />
-        <Pressable onPress={onDelete} hitSlop={6} style={cardStyles.barBtn}>
+        <Pressable
+          onPress={onDelete}
+          hitSlop={6}
+          style={cardStyles.barBtn}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete folder ${item.name || ""}`.trim()}
+        >
           <Text style={cardStyles.barIcon}>✕</Text>
         </Pressable>
       </View>
@@ -380,20 +397,24 @@ function FolderCard({
 
 // --- Finished drawing: movable + resizable ---------------------------
 
+const HANDLE = 12; // resize handle size
+const HANDLE_PAD = 10; // room around a drawing so its corner handles are hittable
+
+type Corner = "tl" | "tr" | "bl" | "br";
+const CORNERS: Corner[] = ["tl", "tr", "bl", "br"];
+
 function DrawingObject({
   drawing,
   selected,
   interactive,
   onSelect,
-  onMove,
-  onResize,
+  onChange,
 }: {
   drawing: Drawing;
   selected: boolean;
   interactive: boolean;
   onSelect: () => void;
-  onMove: (x: number, y: number) => void;
-  onResize: (scale: number) => void;
+  onChange: (patch: Partial<Pick<Drawing, "x" | "y" | "scale">>) => void;
 }) {
   const w = Math.max(drawing.width, 1);
   const h = Math.max(drawing.height, 1);
@@ -401,6 +422,7 @@ function DrawingObject({
   const tx = useRef(new Animated.Value(drawing.x)).current;
   const ty = useRef(new Animated.Value(drawing.y)).current;
   const startPos = useRef({ x: drawing.x, y: drawing.y });
+  const livePos = useRef({ x: drawing.x, y: drawing.y });
 
   const [scale, setScale] = useState(drawing.scale ?? 1);
   const startScale = useRef(drawing.scale ?? 1);
@@ -412,6 +434,7 @@ function DrawingObject({
 
   useEffect(() => {
     startPos.current = { x: drawing.x, y: drawing.y };
+    livePos.current = { x: drawing.x, y: drawing.y };
     tx.setValue(drawing.x);
     ty.setValue(drawing.y);
   }, [drawing.x, drawing.y, tx, ty]);
@@ -421,10 +444,51 @@ function DrawingObject({
     setScale(s);
   }, [drawing.scale]);
 
+  // Corner handles (mouse/trackpad friendly). Each handle is its own
+  // gesture outside the move area, so resizing never drags the drawing.
+  // The drag is projected onto the corner's diagonal → aspect ratio kept.
+  // The origin lives in a ref: re-renders mid-drag rebuild these gestures,
+  // and a closure-local origin would reset (snapping the drawing to 0,0).
+  const resizeOrigin = useRef({ x: 0, y: 0, s: 1 });
+  const resize = useMemo(() => {
+    const make = (corner: Corner) => {
+      const fromLeft = corner === "tl" || corner === "bl";
+      const fromTop = corner === "tl" || corner === "tr";
+      return Gesture.Pan()
+        .runOnJS(true)
+        .enabled(interactive)
+        .minDistance(0)
+        .onBegin(() => {
+          resizeOrigin.current = { ...startPos.current, s: startScale.current };
+        })
+        .onUpdate((e) => {
+          const origin = resizeOrigin.current;
+          const dx = (fromLeft ? -e.translationX : e.translationX) / w;
+          const dy = (fromTop ? -e.translationY : e.translationY) / h;
+          const s = Math.max(MIN_SCALE, Math.min(MAX_SCALE, origin.s + (dx + dy) / 2));
+          const x = fromLeft ? origin.x + w * (origin.s - s) : origin.x;
+          const y = fromTop ? origin.y + h * (origin.s - s) : origin.y;
+          livePos.current = { x, y };
+          scaleRef.current = s;
+          tx.setValue(x);
+          ty.setValue(y);
+          setScale(s);
+        })
+        .onEnd(() => {
+          const { x, y } = livePos.current;
+          startPos.current = { x, y };
+          startScale.current = scaleRef.current;
+          onChange({ x, y, scale: scaleRef.current });
+        });
+    };
+    return { tl: make("tl"), tr: make("tr"), bl: make("bl"), br: make("br") };
+  }, [interactive, onChange, w, h, tx, ty]);
+
   // One finger anywhere on the drawing = move; a barely-moved tap = select.
   const pan = useMemo(
     () =>
       Gesture.Pan()
+        .runOnJS(true)
         .enabled(interactive)
         .minDistance(0)
         .onBegin(() => {
@@ -454,17 +518,19 @@ function DrawingObject({
           const nx = Math.max(0, startPos.current.x + e.translationX);
           const ny = Math.max(0, startPos.current.y + e.translationY);
           startPos.current = { x: nx, y: ny };
+          livePos.current = { x: nx, y: ny };
           tx.setValue(nx);
           ty.setValue(ny);
-          onMove(nx, ny);
+          onChange({ x: nx, y: ny });
         }),
-    [interactive, onMove, onSelect, tx, ty]
+    [interactive, onChange, onSelect, tx, ty]
   );
 
-  // Two fingers = pinch to resize.
+  // Two fingers = pinch to resize (touch screens).
   const pinch = useMemo(
     () =>
       Gesture.Pinch()
+        .runOnJS(true)
         .enabled(interactive)
         .onUpdate((e) => {
           pinchedRef.current = true;
@@ -477,9 +543,9 @@ function DrawingObject({
         })
         .onEnd(() => {
           startScale.current = scaleRef.current;
-          onResize(scaleRef.current);
+          onChange({ scale: scaleRef.current });
         }),
-    [interactive, onResize]
+    [interactive, onChange]
   );
 
   const gesture = useMemo(() => Gesture.Simultaneous(pan, pinch), [pan, pinch]);
@@ -492,27 +558,57 @@ function DrawingObject({
       pointerEvents={interactive ? "box-none" : "none"}
       style={[
         cardStyles.drawingObj,
-        { width: dispW, height: dispH, transform: [{ translateX: tx }, { translateY: ty }] },
-        selected && cardStyles.drawingObjSelected,
+        {
+          width: dispW + HANDLE_PAD * 2,
+          height: dispH + HANDLE_PAD * 2,
+          transform: [{ translateX: tx }, { translateY: ty }],
+        },
       ]}
     >
       <GestureDetector gesture={gesture}>
-        <Animated.View style={StyleSheet.absoluteFill}>
-          <Svg width={dispW} height={dispH} viewBox={`0 0 ${w} ${h}`} pointerEvents="none">
-            {drawing.strokes.map((s, i) => (
-              <Path
-                key={i}
-                d={strokePath(s.points)}
-                stroke={s.color}
-                strokeWidth={s.width}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            ))}
-          </Svg>
+        <Animated.View
+          style={[
+            { position: "absolute", left: HANDLE_PAD, top: HANDLE_PAD, width: dispW, height: dispH },
+            selected && cardStyles.drawingObjSelected,
+          ]}
+        >
+          <View className="web:cursor-move" style={StyleSheet.absoluteFill}>
+            <Svg width={dispW} height={dispH} viewBox={`0 0 ${w} ${h}`} pointerEvents="none">
+              {drawing.strokes.map((s, i) => (
+                <Path
+                  key={i}
+                  d={strokePath(s.points)}
+                  stroke={s.color}
+                  strokeWidth={s.width}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              ))}
+            </Svg>
+          </View>
         </Animated.View>
       </GestureDetector>
+
+      {selected && interactive
+        ? CORNERS.map((c) => (
+            <GestureDetector key={c} gesture={resize[c]}>
+              <View
+                accessibilityLabel="Resize drawing"
+                className={
+                  c === "tl" || c === "br" ? "web:cursor-nwse-resize" : "web:cursor-nesw-resize"
+                }
+                style={[
+                  cardStyles.handle,
+                  {
+                    left: HANDLE_PAD - HANDLE / 2 + (c === "tr" || c === "br" ? dispW : 0),
+                    top: HANDLE_PAD - HANDLE / 2 + (c === "bl" || c === "br" ? dispH : 0),
+                  },
+                ]}
+              />
+            </GestureDetector>
+          ))
+        : null}
     </Animated.View>
   );
 }
@@ -769,16 +865,8 @@ function CanvasView({
     else updateItem(item.id, { x: nx, y: ny });
   };
 
-  const confirmRemoveFolder = (item: Extract<CanvasItem, { kind: "folder" }>) => {
-    Alert.alert(
-      "Delete folder",
-      `Delete "${item.name || "Folder"}" and everything inside it?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => removeFolder(item.id) },
-      ]
-    );
-  };
+  // Alert.alert is a no-op on web, so folder deletes use an AlertDialog.
+  const [folderToDelete, setFolderToDelete] = useState<FolderItem | null>(null);
 
   const addImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -884,8 +972,7 @@ function CanvasView({
                 onSelect={() =>
                   setSelectedDrawing((cur) => (cur === d.id ? null : d.id))
                 }
-                onMove={(x, y) => updateDrawing(d.id, { x, y })}
-                onResize={(s) => updateDrawing(d.id, { scale: s })}
+                onChange={(patch) => updateDrawing(d.id, patch)}
               />
             ))}
 
@@ -915,7 +1002,7 @@ function CanvasView({
                     item={item}
                     onOpen={() => onOpenFolder({ id: item.id, name: item.name || "Folder" })}
                     onRename={(name) => updateItem(item.id, { name })}
-                    onDelete={() => confirmRemoveFolder(item)}
+                    onDelete={() => setFolderToDelete(item)}
                   />
                 ) : (
                   <DocumentCard item={item} remove={() => removeItem(item.id)} />
@@ -928,8 +1015,8 @@ function CanvasView({
                 <Text style={cardStyles.hintNoteText}>
                   Add notes, to-dos, images, docs or a folder from the toolbar —
                   drag a note onto a 📁 to file it inside. Tap Draw to sketch;
-                  drag a drawing anywhere to move it, pinch to resize, tap it to
-                  select and delete.
+                  drag a drawing anywhere to move it, tap it to select, then
+                  drag a corner handle (or pinch) to resize.
                 </Text>
               </View>
             ) : null}
@@ -994,7 +1081,7 @@ function CanvasView({
       {!drawing && selectedDrawing ? (
         <View style={styles.drawBar}>
           <Text style={styles.drawHint}>
-            Drag to move · pinch to resize
+            Drag to move · drag a corner handle (or pinch) to resize
           </Text>
           <View style={styles.drawBarRow}>
             <Pressable
@@ -1041,7 +1128,49 @@ function CanvasView({
           </View>
         </View>
       </Modal>
+
+      {folderToDelete ? (
+        <DeleteFolderDialog
+          folder={folderToDelete}
+          onCancel={() => setFolderToDelete(null)}
+          onConfirm={() => {
+            removeFolder(folderToDelete.id);
+            setFolderToDelete(null);
+          }}
+        />
+      ) : null}
     </View>
+  );
+}
+
+type FolderItem = Extract<CanvasItem, { kind: "folder" }>;
+
+// Existing behavior: deleting a folder removes everything filed inside it
+// (see store.removeFolder). Spell out what will be lost before doing it.
+function DeleteFolderDialog({
+  folder,
+  onCancel,
+  onConfirm,
+}: {
+  folder: FolderItem;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const { items, drawings } = useCanvas(folder.id);
+  const n = items.length + drawings.length;
+  const name = folder.name || "Folder";
+  return (
+    <ConfirmDialog
+      open
+      onOpenChange={(open) => !open && onCancel()}
+      title="Delete folder?"
+      description={
+        n > 0
+          ? `Are you sure you want to delete "${name}"? The ${n} item${n === 1 ? "" : "s"} inside it (and any subfolders) will be deleted too. This action cannot be undone.`
+          : `Are you sure you want to delete "${name}"? It's empty. This action cannot be undone.`
+      }
+      onConfirm={onConfirm}
+    />
   );
 }
 
@@ -1179,7 +1308,29 @@ const cardStyles = StyleSheet.create({
   },
   hintNoteText: { fontSize: 13, color: "#4A4A2A", lineHeight: 18 },
 
-  drawingObj: { position: "absolute", top: 0, left: 0 },
+  // Offset by the handle padding so the drawing itself sits at (x, y).
+  drawingObj: { position: "absolute", top: -HANDLE_PAD, left: -HANDLE_PAD },
+  handle: {
+    position: "absolute",
+    width: HANDLE,
+    height: HANDLE,
+    borderRadius: 3,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: colors.accent,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  noteDate: {
+    fontSize: 11,
+    color: "rgba(0,0,0,0.5)",
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.xs,
+    fontWeight: "600",
+  },
   drawingObjSelected: {
     borderWidth: 1.5,
     borderColor: colors.accent,
