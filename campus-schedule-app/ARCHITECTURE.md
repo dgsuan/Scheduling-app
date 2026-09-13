@@ -291,3 +291,34 @@ part of backups.
 computed on a timer **while the app is open** (tab or installed window) and
 shown through the service worker. Delivering them while the app is closed
 would need a push server, which this project deliberately doesn't have.
+
+## 7. Accounts, sync and sharing (Supabase)
+
+Optional: without keys the app is exactly the local-first app above. Setup,
+the full list of database-enforced limits, and dashboard settings are in
+[`supabase/README.md`](supabase/README.md).
+
+- **Per-item sync.** Each course, task, event, note, drawing, grade book and
+  settings object is one row in `items`. `lib/syncItems.ts` maps slices to
+  rows and plans every sync (pure and unit-tested): a per-item hash "base"
+  from the last sync tells local edits, remote edits, conflicts (newer wins)
+  and deletions (tombstones) apart. `components/SyncEngine.tsx` does the
+  network side: pushes changed items shortly after a save, pulls changes
+  after a cursor, listens on Realtime, and migrates devices that used the
+  old whole-slice `user_data` table.
+- **Files.** Note images and attachments are uploaded to the private
+  `user-files` bucket (`lib/cloudFiles.ts`). Items keep data: URLs on the
+  device; only the synced copy holds `cloudfile:<content-hash>` references.
+- **Sharing a course** stores a sanitized copy under a random 10-character
+  code (`lib/cloud.ts`, Courses → Share). **Class sections** let members post
+  deadlines; `context/sections.tsx` mirrors every post into the task list
+  as a task with `source.kind = "section"` and a deterministic id, so all of a
+  user's devices converge on the same task.
+- **Security model.** The browser is untrusted: every rule (ownership, sizes,
+  quotas, rate limits, roles, re-authentication for account deletion) lives
+  in Postgres (`supabase/migrations/0002`) and is attacked directly by
+  `tests/security.test.mjs`.
+- **Tests & CI.** `npm test` runs the typecheck, logic tests
+  (`tests/*.test.ts`, plain Node with `tests/register.mjs`), a web build and
+  the headless-Chrome suites; `.github/workflows/ci.yml` runs the same on
+  every push. Deploys run the typecheck and logic tests first.

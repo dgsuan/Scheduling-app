@@ -18,9 +18,11 @@ export type SyncState = {
   phase: SyncPhase;
   lastSyncedAt: number | null;
   error: string | null;
+  /** Something synced with caveats (e.g. a file too large to upload). */
+  notice: string | null;
 };
 
-let state: SyncState = { phase: "off", lastSyncedAt: null, error: null };
+let state: SyncState = { phase: "off", lastSyncedAt: null, error: null, notice: null };
 const subscribers = new Set<() => void>();
 
 export function setSyncState(patch: Partial<SyncState>) {
@@ -62,6 +64,42 @@ export async function getDeviceId(): Promise<string> {
   return id;
 }
 
+/** Bookkeeping for per-item sync (one per account per device). */
+export type SyncMetaV2 = {
+  firstSyncDone: boolean;
+  /** Newest server updated_at seen; the next sync fetches changes after it. */
+  cursor: string | null;
+  /** Item key → hash as of the last sync. */
+  base: Record<string, string>;
+  /** When this device last changed each slice (ms), for resolving conflicts. */
+  localChangedAt: Partial<Record<CollectionName, number>>;
+  /** Files known to be in storage. */
+  uploaded: Record<string, 1>;
+  lastGcAt?: number;
+};
+
+const metaV2Key = (userId: string) => `campus-schedule-cache:sync-v2:${userId}`;
+
+export async function loadSyncMeta(userId: string): Promise<SyncMetaV2> {
+  const fresh: SyncMetaV2 = { firstSyncDone: false, cursor: null, base: {}, localChangedAt: {}, uploaded: {} };
+  try {
+    const raw = await AsyncStorage.getItem(metaV2Key(userId));
+    if (raw) return { ...fresh, ...JSON.parse(raw) };
+  } catch {
+    // Corrupt bookkeeping just means a fresh first sync.
+  }
+  return fresh;
+}
+
+export async function saveSyncMeta(userId: string, meta: SyncMetaV2) {
+  await AsyncStorage.setItem(metaV2Key(userId), JSON.stringify(meta)).catch(() => {});
+}
+
+export async function clearSyncMeta(userId: string) {
+  await AsyncStorage.multiRemove([metaKey(userId), metaV2Key(userId)]).catch(() => {});
+}
+
+/** Whole-slice bookkeeping from before per-item sync; read once to migrate. */
 export type SyncMeta = {
   /** Set once this device has finished its first sync with the account. */
   firstSyncDone: boolean;

@@ -15,6 +15,7 @@ import type { ImportedEvent, ImportedTask } from "@/lib/ics";
 import { nextRepeatDate, repeatStop } from "@/lib/recurrence";
 import type { ScheduleRules } from "@/lib/schedule";
 import { emitLocalWrite } from "@/lib/syncEvents";
+import { applyToSlice, type RemoteItem } from "@/lib/syncItems";
 
 // App-wide local data store: courses, per-canvas notes/drawings, tasks,
 // events, planner settings, class cancellations and grades. Everything
@@ -127,8 +128,11 @@ export type TaskRepeat = {
   until?: string;
 };
 
-/** Where an imported item came from; `key` de-duplicates re-imports. */
-export type ImportSource = { kind: "ics"; key: string };
+/** Where an item came from; `key` de-duplicates re-imports. */
+export type ImportSource =
+  | { kind: "ics"; key: string }
+  /** A deadline posted to a class section (key = post id). */
+  | { kind: "section"; key: string; sectionId: string };
 
 export type Task = {
   id: string;
@@ -196,6 +200,8 @@ export type PlannerSettings = {
   skipRegularHolidays: boolean;
   skipSpecialHolidays: boolean;
   reminders: ReminderSettings;
+  /** Class-section deadlines the user deleted, so refreshes don't bring them back. */
+  dismissedSectionPosts?: string[];
 };
 
 export const DEFAULT_SETTINGS: PlannerSettings = {
@@ -216,6 +222,28 @@ export type CourseGrades = {
 };
 
 // --- Store shape -----------------------------------------------------
+
+export type StoreSlices = {
+  courses: Course[];
+  canvases: Record<string, CanvasData>;
+  tasks: Task[];
+  events: CalendarEvent[];
+  settings: PlannerSettings;
+  cancellations: Cancellation[];
+  grades: Record<string, CourseGrades>;
+};
+export type StoreSliceName = keyof StoreSlices;
+
+/** A class-section deadline, as mirrored into the task list. */
+export type SectionPostTask = {
+  postId: string;
+  sectionId: string;
+  title: string;
+  due: string;
+  dueTime?: string;
+  courseCode: string | null;
+  createdAt: number;
+};
 
 type StoreShape = {
   ready: boolean;
@@ -272,6 +300,12 @@ type StoreShape = {
 
   /** Replace one slice (by storage key) with data from elsewhere, e.g. cloud sync. */
   applyStored: (storageKey: string, value: unknown) => void;
+  /** The latest value of every slice, including changes not rendered yet. */
+  snapshot: () => StoreSlices;
+  /** Apply per-item changes from cloud sync to one slice. */
+  applySliceChanges: (name: StoreSliceName, rows: RemoteItem[]) => void;
+  /** Mirror class-section deadlines (all of them, from every joined section) into tasks. */
+  applySectionPosts: (posts: SectionPostTask[]) => void;
 };
 
 export const STORAGE_KEYS = {
@@ -643,9 +677,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
   const removeTask = useCallback((id: string) => {
+    const task = tasksRef.current.find((t) => t.id === id);
+    if (task?.source?.kind === "section") {
+      // Remember it, or the next refresh of the section would bring it back.
+      const postId = task.source.key;
+      setSettings((prev) =>
+        normalizeSettings({
+          ...prev,
+          dismissedSectionPosts: [...(prev.dismissedSectionPosts ?? []).filter((p) => p !== postId), postId].slice(-500),
+        })
+      );
+    }
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
   const restoreTask = useCallback((task: Task) => {
+    if (task.source?.kind === "section") {
+      const postId = task.source.key;
+      setSettings((prev) =>
+        prev.dismissedSectionPosts?.includes(postId)
+          ? normalizeSettings({ ...prev, dismissedSectionPosts: prev.dismissedSectionPosts.filter((p) => p !== postId) })
+          : prev
+      );
+    }
     setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev : [...prev, task]));
   }, []);
   const skipTaskOccurrence = useCallback((id: string) => {
@@ -779,6 +832,73 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Latest values, updated on render and eagerly by applySliceChanges, so
+  // sync never reads a slice that's older than what it just applied.
+  const slicesRef = useRef<StoreSlices>({ courses, canvases, tasks, events, settings, cancellations, grades });
+  slicesRef.current = { courses, canvases, tasks, events, settings, cancellations, grades };
+  const snapshot = useCallback(() => slicesRef.current, []);
+
+  const applySliceChanges = useCallback((name: StoreSliceName, rows: RemoteItem[]) => {
+    if (!rows.length) return;
+    const next = (prev: unknown): any => {
+      const v = applyToSlice(name, prev, rows);
+      return name === "canvases" ? normalizeCanvases(v) : name === "settings" ? normalizeSettings(v) : v;
+    };
+    slicesRef.current = { ...slicesRef.current, [name]: next(slicesRef.current[name]) };
+    const setters: Record<StoreSliceName, (fn: (prev: any) => any) => void> = {
+      courses: setCourses,
+      canvases: setCanvases,
+      tasks: setTasks,
+      events: setEvents,
+      settings: setSettings,
+      cancellations: setCancellations,
+      grades: setGrades,
+    };
+    setters[name](next);
+  }, []);
+
+  const applySectionPosts = useCallback((posts: SectionPostTask[]) => {
+    const normalizeCode = (s: string) => s.replace(/\s+/g, " ").trim().toUpperCase();
+    setTasks((prev) => {
+      const dismissed = new Set(slicesRef.current.settings.dismissedSectionPosts ?? []);
+      const byPost = new Map(posts.filter((p) => !dismissed.has(p.postId)).map((p) => [p.postId, p]));
+      const courseByCode = new Map(slicesRef.current.courses.map((c) => [normalizeCode(c.code), c.id]));
+      const seen = new Set<string>();
+      let changed = false;
+      const next = prev.flatMap((t) => {
+        if (t.source?.kind !== "section") return [t];
+        const post = byPost.get(t.source.key);
+        if (!post) {
+          // Deleted post, or no longer a member. Finished ones stay as history.
+          if (t.done) return [t];
+          changed = true;
+          return [];
+        }
+        seen.add(post.postId);
+        if (t.title === post.title && t.due === post.due && t.dueTime === post.dueTime) return [t];
+        changed = true;
+        return [{ ...t, title: post.title, due: post.due, dueTime: post.dueTime }];
+      });
+      for (const post of byPost.values()) {
+        if (seen.has(post.postId)) continue;
+        changed = true;
+        next.push({
+          // Deterministic, so every device creates the identical task.
+          id: `task-sec-${post.postId}`,
+          title: post.title,
+          due: post.due,
+          dueTime: post.dueTime,
+          priority: "medium",
+          done: false,
+          courseId: post.courseCode ? courseByCode.get(normalizeCode(post.courseCode)) : undefined,
+          createdAt: post.createdAt,
+          source: { kind: "section", key: post.postId, sectionId: post.sectionId },
+        });
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
   const value = useMemo<StoreShape>(
     () => ({
       ready,
@@ -820,6 +940,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCourseGrades,
       storageError,
       applyStored,
+      snapshot,
+      applySliceChanges,
+      applySectionPosts,
     }),
     [
       ready,
@@ -861,6 +984,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCourseGrades,
       storageError,
       applyStored,
+      snapshot,
+      applySliceChanges,
+      applySectionPosts,
     ]
   );
 
@@ -954,6 +1080,16 @@ export function useCancellations() {
 export function useGrades() {
   const { grades, setCourseGrades } = useStore();
   return { grades, setCourseGrades };
+}
+
+export function useStoreSync() {
+  const { ready, snapshot, applySliceChanges } = useStore();
+  return { ready, snapshot, applySliceChanges };
+}
+
+export function useSectionTasks() {
+  const { applySectionPosts } = useStore();
+  return { applySectionPosts };
 }
 
 export function useStoreApply() {

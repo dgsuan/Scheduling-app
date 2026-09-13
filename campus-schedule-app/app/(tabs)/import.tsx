@@ -4,6 +4,7 @@ import { FileUp, Link2, TriangleAlert } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
+import { CrsImport } from "@/components/import/CrsImport";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { useToast } from "@/components/Toaster";
 import { Badge } from "@/components/ui/badge";
@@ -127,8 +128,10 @@ export default function ImportScreen() {
     >
       <ScreenHeader
         title="Import"
-        subtitle="Bring deadlines and events in from UVLE or any calendar. Re-importing updates what's changed instead of duplicating."
+        subtitle="Bring in your class schedule from CRS, and deadlines and events from UVLE or any calendar. Re-importing updates what's changed instead of duplicating."
       />
+
+      <CrsImport />
 
       <View className="bg-card/80 border-border rounded-xl border">
         <View className="gap-3 p-4">

@@ -1,17 +1,22 @@
-import { CloudCheck, CloudOff, Loader, MailCheck, RefreshCw, TriangleAlert } from "lucide-react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { CloudCheck, CloudOff, Info, Loader, MailCheck, RefreshCw, TriangleAlert } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { SettingsRow, SettingsSection } from "@/components/settings/SettingsSection";
+import { useToast } from "@/components/Toaster";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { MIN_PASSWORD_LENGTH, useAuth } from "@/context/auth";
-import { relativeTime, requestSyncNow, useSyncState } from "@/lib/sync";
+import { BACKUP_KEYS } from "@/lib/backup";
+import { deleteAccount } from "@/lib/cloud";
+import { clearSyncMeta, relativeTime, requestSyncNow, useSyncState } from "@/lib/sync";
 
 // Sign in / create an account, and see sync status.
 
@@ -203,20 +208,130 @@ function SyncStatus() {
             : { icon: CloudOff, tone: "text-muted-foreground", text: "Not synced yet" };
 
   return (
-    <View className="flex-row items-center gap-2" role="status" aria-live="polite">
-      <Icon as={view.icon} size={15} className={view.tone} />
-      <Text className="flex-1 text-sm">{view.text}</Text>
-      <Button variant="ghost" size="sm" onPress={requestSyncNow} disabled={sync.phase === "syncing"} accessibilityLabel="Sync now">
-        <Icon as={RefreshCw} size={14} className="text-muted-foreground" />
-        <Text className="text-muted-foreground">Sync now</Text>
-      </Button>
+    <View className="gap-2">
+      <View className="flex-row items-center gap-2" role="status" aria-live="polite">
+        <Icon as={view.icon} size={15} className={view.tone} />
+        <Text className="flex-1 text-sm">{view.text}</Text>
+        <Button variant="ghost" size="sm" onPress={requestSyncNow} disabled={sync.phase === "syncing"} accessibilityLabel="Sync now">
+          <Icon as={RefreshCw} size={14} className="text-muted-foreground" />
+          <Text className="text-muted-foreground">Sync now</Text>
+        </Button>
+      </View>
+      {sync.notice ? (
+        <View className="flex-row gap-2">
+          <Icon as={Info} size={14} className="text-muted-foreground mt-0.5" />
+          <Text className="text-muted-foreground flex-1 text-[13px] leading-[18px]">{sync.notice}</Text>
+        </View>
+      ) : null}
     </View>
+  );
+}
+
+const CONFIRM_WORD = "DELETE";
+
+function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const auth = useAuth();
+  const { toast } = useToast();
+  const [password, setPassword] = useState("");
+  const [typed, setTyped] = useState("");
+  const [eraseDevice, setEraseDevice] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setPassword("");
+      setTyped("");
+      setEraseDevice(false);
+      setError(null);
+    }
+  }, [open]);
+
+  const user = auth.user;
+  const ready = !!password && typed.trim().toUpperCase() === CONFIRM_WORD && !busy;
+
+  const submit = async () => {
+    if (!user?.email || !ready) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteAccount(user.email, password, user.id);
+      await clearSyncMeta(user.id);
+      if (eraseDevice) {
+        await AsyncStorage.multiRemove(Object.values(BACKUP_KEYS));
+        if (Platform.OS === "web") {
+          window.location.reload();
+          return;
+        }
+      }
+      onOpenChange(false);
+      toast({ message: "Your account was deleted", description: eraseDevice ? undefined : "Your data is still on this device." });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+      <DialogContent className="gap-4 p-5 sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete your account?</DialogTitle>
+          <DialogDescription>
+            This permanently deletes {user?.email ?? "your account"} and everything stored with it: synced courses, tasks and notes, uploaded
+            files, share codes, and sections you own (for all their members). It can&apos;t be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoComplete="current-password"
+          placeholder="Your password"
+          accessibilityLabel="Password"
+        />
+        <Input
+          value={typed}
+          onChangeText={setTyped}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          placeholder={`Type ${CONFIRM_WORD} to confirm`}
+          accessibilityLabel={`Type ${CONFIRM_WORD} to confirm`}
+        />
+        <Pressable
+          onPress={() => setEraseDevice((v) => !v)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: eraseDevice }}
+          className="flex-row items-start gap-3"
+        >
+          <View className="pt-0.5" pointerEvents="none">
+            <Checkbox checked={eraseDevice} onCheckedChange={setEraseDevice} className="size-5 rounded-md" />
+          </View>
+          <Text className="flex-1 text-sm leading-5">Also erase everything on this device. Otherwise your data stays here, offline.</Text>
+        </Pressable>
+        {error ? (
+          <Text className="text-destructive text-sm" role="alert">
+            {error}
+          </Text>
+        ) : null}
+        <View className="flex-row flex-wrap justify-end gap-2">
+          <Button variant="outline" onPress={() => onOpenChange(false)} disabled={busy}>
+            <Text>Cancel</Text>
+          </Button>
+          <Button variant="destructive" onPress={submit} disabled={!ready}>
+            <Text>{busy ? "Deleting…" : "Delete account"}</Text>
+          </Button>
+        </View>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 export function AccountSection() {
   const auth = useAuth();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   if (!auth.configured) return null;
 
   return (
@@ -237,9 +352,15 @@ export function AccountSection() {
               <Text>Sign out</Text>
             </Button>
           </SettingsRow>
-          <SettingsRow label="Sync" stacked last>
+          <SettingsRow label="Sync" stacked>
             <SyncStatus />
           </SettingsRow>
+          <SettingsRow label="Delete account" hint="Permanently removes your account and everything synced to it." last>
+            <Button variant="outline" size="sm" onPress={() => setDeleting(true)}>
+              <Text className="text-destructive">Delete account…</Text>
+            </Button>
+          </SettingsRow>
+          <DeleteAccountDialog open={deleting} onOpenChange={setDeleting} />
         </>
       ) : (
         <SignInForm />

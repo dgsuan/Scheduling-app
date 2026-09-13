@@ -13,6 +13,7 @@ import { AppServices } from "@/components/AppServices";
 import { CommandPaletteProvider } from "@/components/CommandPalette";
 import { AuthProvider } from "@/context/auth";
 import { FocusProvider } from "@/context/focus";
+import { SectionsProvider } from "@/context/sections";
 import { ToastProvider } from "@/components/Toaster";
 import { AppProvider } from "@/context/store";
 import { ThemeProvider, useTheme } from "@/context/theme";
@@ -62,11 +63,13 @@ export default function RootLayout() {
           <ToastProvider>
             <AuthProvider>
               <AppProvider>
-                <FocusProvider>
-                  <CommandPaletteProvider>
-                    <ThemedShell />
-                  </CommandPaletteProvider>
-                </FocusProvider>
+                <SectionsProvider>
+                  <FocusProvider>
+                    <CommandPaletteProvider>
+                      <ThemedShell />
+                    </CommandPaletteProvider>
+                  </FocusProvider>
+                </SectionsProvider>
               </AppProvider>
             </AuthProvider>
           </ToastProvider>

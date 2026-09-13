@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -30,6 +31,10 @@ import { GradesDialog } from "@/components/grades/GradesDialog";
 import { GwaSummary } from "@/components/grades/GwaSummary";
 import { useGrades } from "@/context/store";
 import { DEFAULT_UNITS, courseStanding, formatGrade } from "@/lib/grades";
+import { AddSharedCourseDialog, ShareCourseDialog } from "@/components/courses/CourseSharing";
+import { Button } from "@/components/ui/button";
+import { Text as UiText } from "@/components/ui/text";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 const DAY_CHIPS: { value: Weekday; label: string }[] = [
   { value: 1, label: "M" },
@@ -401,12 +406,31 @@ export default function CoursesScreen() {
   const [removing, setRemoving] = useState<Course | null>(null);
   const confirmRemove = (course: Course) => setRemoving(course);
 
+  // Sharing: ?course=<code> (from a share link) opens "Add a shared course".
+  const [sharing, setSharing] = useState<Course | null>(null);
+  const [addShared, setAddShared] = useState<{ code?: string } | null>(null);
+  const params = useLocalSearchParams<{ course?: string }>();
+  useEffect(() => {
+    if (params.course && isSupabaseConfigured) {
+      setAddShared({ code: String(params.course).slice(0, 16) });
+      // Deferred: on a cold load from a share link the root navigator isn't mounted yet.
+      setTimeout(() => router.setParams({ course: undefined }), 0);
+    }
+  }, [params.course]);
+
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
         <ScreenHeader
           title="Courses"
           subtitle="The classes you're enrolled in. Schedule and Calendar read from this list."
+          right={
+            isSupabaseConfigured ? (
+              <Button variant="ghost" size="sm" onPress={() => setAddShared({})}>
+                <UiText className="text-muted-foreground">Add shared course</UiText>
+              </Button>
+            ) : undefined
+          }
         />
 
         {sorted.length ? <GwaSummary courses={sorted} grades={grades} /> : null}
@@ -453,6 +477,11 @@ export default function CoursesScreen() {
                   <Pressable onPress={() => setGradesFor(course)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${course.code} grades`}>
                     <Text style={styles.actionEdit}>Grades</Text>
                   </Pressable>
+                  {isSupabaseConfigured ? (
+                    <Pressable onPress={() => setSharing(course)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Share ${course.code}`}>
+                      <Text style={styles.actionEdit}>Share</Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable onPress={() => openEdit(course)} hitSlop={6}>
                     <Text style={styles.actionEdit}>Edit</Text>
                   </Pressable>
@@ -488,6 +517,12 @@ export default function CoursesScreen() {
       </Modal>
 
       <GradesDialog course={gradesCourse} onClose={() => setGradesFor(null)} />
+      {isSupabaseConfigured ? (
+        <>
+          <ShareCourseDialog course={sharing} onClose={() => setSharing(null)} />
+          <AddSharedCourseDialog open={!!addShared} initialCode={addShared?.code} onClose={() => setAddShared(null)} />
+        </>
+      ) : null}
 
       <ConfirmDialog
         open={!!removing}

@@ -47,6 +47,7 @@
     "@types/react": "~19.1.0",
     "@types/react-dom": "~19.1.0",
     "prettier-plugin-tailwindcss": "^0.5.14",
+    "puppeteer-core": "^25.10.0",
     "tailwindcss": "^3.4.19",
     "typescript": "~6.0.3"
   },
@@ -56,7 +57,11 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "export:web": "expo export -p web && node scripts/postbuild-web.mjs dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:logic": "node --import ./tests/register.mjs tests/logic.test.ts && node --import ./tests/register.mjs tests/sync-crs.test.ts",
+    "test:browser": "node tests/browser.test.mjs && node tests/image.test.mjs && node tests/settings.test.mjs && node tests/features.test.mjs && node tests/crs.test.mjs",
+    "test:security": "node tests/security.test.mjs",
+    "test": "npm run typecheck && npm run test:logic && npm run export:web && npm run test:browser"
   },
   "private": true
 }

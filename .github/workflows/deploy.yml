@@ -27,11 +27,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: campus-schedule-app/package-lock.json
 
       - run: npm ci
+
+      # Fast checks so a broken build never replaces the live site.
+      # (The full browser suites run in the Tests workflow.)
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Logic tests
+        run: npm run test:logic
 
       # Exports, then injects the PWA manifest + pre-paint theme into index.html.
       # Supabase keys come from repo Variables (Settings → Secrets and

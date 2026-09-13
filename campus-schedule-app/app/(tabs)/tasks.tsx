@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronRight, Flag, ListTree, Pencil, Repeat, Timer, Trash2 } from "lucide-react-native";
+import { ChevronRight, Flag, ListTree, Pencil, Repeat, Timer, Trash2, Users } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
@@ -12,6 +12,7 @@ import { TaskCheckbox } from "@/components/TaskCheckbox";
 import { RecurringDeleteDialog } from "@/components/tasks/RecurringDeleteDialog";
 import { SubtaskList } from "@/components/tasks/SubtaskList";
 import { TimePickerField } from "@/components/TimePickerField";
+import { SectionsDialog } from "@/components/sections/SectionsDialog";
 import { useToast } from "@/components/Toaster";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -25,6 +26,7 @@ import { describeRepeat, nextRepeatDate, repeatStop, weeklyOn } from "@/lib/recu
 import { display12h } from "@/lib/schedule";
 import { formatDue, isDueSoon, isOverdue, isoDate, sortTasks, todayIso } from "@/lib/tasks";
 import { useBreakpoint } from "@/lib/useBreakpoint";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import { useNow } from "@/lib/useNow";
 import { cn } from "@/lib/utils";
 
@@ -257,8 +259,20 @@ export default function TasksScreen() {
   const [deletingSeries, setDeletingSeries] = useState<Task | null>(null);
   const composer = useRef<TextInput>(null);
 
-  // Deep links: ?new=1 focuses the composer, ?open=<id> opens a task.
-  const params = useLocalSearchParams<{ new?: string; open?: string }>();
+  const [sectionsOpen, setSectionsOpen] = useState(false);
+  const [joinCode, setJoinCode] = useState<string | undefined>(undefined);
+
+  // Deep links: ?new=1 focuses the composer, ?open=<id> opens a task,
+  // ?join=<code> opens a class-section invite.
+  const params = useLocalSearchParams<{ new?: string; open?: string; join?: string }>();
+  useEffect(() => {
+    if (params.join && isSupabaseConfigured) {
+      setJoinCode(String(params.join).slice(0, 16));
+      setSectionsOpen(true);
+      // Deferred: on a cold load from an invite link the root navigator isn't mounted yet.
+      setTimeout(() => router.setParams({ join: undefined }), 0);
+    }
+  }, [params.join]);
   useEffect(() => {
     if (params.new) {
       setTimeout(() => composer.current?.focus(), 50);
@@ -356,7 +370,32 @@ export default function TasksScreen() {
               ? `${open} open${overdueCount ? ` · ${overdueCount} overdue` : ""}${doneCount ? ` · ${doneCount} done` : ""}`
               : "Everything you need to get done."
           }
+          right={
+            isSupabaseConfigured ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => {
+                  setJoinCode(undefined);
+                  setSectionsOpen(true);
+                }}
+              >
+                <Icon as={Users} size={15} className="text-muted-foreground" />
+                <Text className="text-muted-foreground">Class sections</Text>
+              </Button>
+            ) : undefined
+          }
         />
+        {isSupabaseConfigured ? (
+          <SectionsDialog
+            open={sectionsOpen}
+            onOpenChange={(o) => {
+              setSectionsOpen(o);
+              if (!o) setJoinCode(undefined);
+            }}
+            joinCode={joinCode}
+          />
+        ) : null}
 
         {/* Composer */}
         <View className="bg-card border-border rounded-xl border shadow-sm shadow-black/5">

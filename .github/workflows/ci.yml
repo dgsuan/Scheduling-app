@@ -1,0 +1,57 @@
+name: Tests
+
+# Typecheck, logic tests, then the full browser suites against a fresh web
+# build, on every push and pull request.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: campus-schedule-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: campus-schedule-app/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Logic tests
+        run: npm run test:logic
+
+      # Built without Supabase keys: the browser suites test the app offline.
+      - name: Web build
+        run: npm run export:web
+
+      - name: Browser tests
+        run: npm run test:browser
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: campus-schedule-app/tests/.output
+          retention-days: 7
