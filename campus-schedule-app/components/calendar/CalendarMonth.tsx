@@ -20,7 +20,7 @@ import {
   type AgendaSources,
   type MonthCell,
 } from "@/lib/calendar";
-import { WEEKDAY_SHORT } from "@/lib/schedule";
+import { WEEKDAY_SHORT, type DatedOccurrence } from "@/lib/schedule";
 import { todayIso } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
 
@@ -46,9 +46,21 @@ type Props = {
   onCreateRange: (start: string, end: string) => void;
   onEdit: (item: EditableAgendaItem) => void;
   onToggleTask: (task: Task, done: boolean) => void;
+  onCancelClass: (occ: DatedOccurrence) => void;
+  onRestoreClass: (occ: DatedOccurrence) => void;
 };
 
-export function CalendarMonth({ year, month, sources, highlight, onCreateRange, onEdit, onToggleTask }: Props) {
+export function CalendarMonth({
+  year,
+  month,
+  sources,
+  highlight,
+  onCreateRange,
+  onEdit,
+  onToggleTask,
+  onCancelClass,
+  onRestoreClass,
+}: Props) {
   const [gridW, setGridW] = useState(0);
   const [drag, setDrag] = useState<{ anchor: number; current: number } | null>(null);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
@@ -173,6 +185,8 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
       onAdd={() => onCreateRange(openCell.iso, openCell.iso)}
       onEdit={onEdit}
       onToggleTask={onToggleTask}
+      onCancelClass={onCancelClass}
+      onRestoreClass={onRestoreClass}
       style={Platform.OS === "web" ? anchoredStyle(openIdx!, gridW, cellW, cellH, rows) : { marginTop: 12 }}
     />
   ) : null;
@@ -205,7 +219,7 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
                 const isToday = cell.iso === today;
                 const isOpen = openIdx === i;
                 const holiday = items.find((it) => it.kind === "holiday");
-                const classes = items.filter((it) => it.kind === "class");
+                const classes = items.filter((it) => it.kind === "class" && it.occ.status === "scheduled");
                 const labeled = items.filter((it) => it.kind !== "class" && it.kind !== "holiday");
                 const weekend = cell.weekday === 0 || cell.weekday === 6;
                 return (
@@ -313,7 +327,9 @@ export function CalendarMonth({ year, month, sources, highlight, onCreateRange, 
                         </View>
                       ) : (
                         <View className={cn("mt-0.5 h-[7px] flex-row items-center gap-[3px]", cell.outside && "opacity-40")}>
-                          {dedupeMarks(items).slice(0, 4).map((it) => (
+                          {dedupeMarks(items.filter((it) => it.kind !== "class" || it.occ.status === "scheduled"))
+                            .slice(0, 4)
+                            .map((it) => (
                             <KindMark key={it.key} item={it} />
                           ))}
                         </View>

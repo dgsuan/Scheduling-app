@@ -14,6 +14,7 @@ import {
   type ClassOccurrence,
   type NowAndNext,
 } from "@/lib/schedule";
+import { formatShortDate } from "@/lib/calendar";
 import { cn } from "@/lib/utils";
 
 // The one dominant thing on the home screen: the class in session, or
@@ -63,9 +64,18 @@ function Title({ occ }: { occ: ClassOccurrence }) {
 export function TodayHero({
   ongoing,
   next,
+  termState,
+  term,
   now,
   hasCourses,
-}: NowAndNext & { now: Date; hasCourses: boolean }) {
+  skippedToday,
+}: NowAndNext & {
+  term?: { start: string; end: string };
+  now: Date;
+  hasCourses: boolean;
+  /** Set when today's classes are all off (holiday / cancellations). */
+  skippedToday?: { reason: string } | null;
+}) {
   const t = useTheme();
   const nowMin = minutesNow(now);
   const nextToday = next && next.daysAhead === 0 ? next : null;
@@ -129,19 +139,30 @@ export function TodayHero({
     );
   }
 
+  const nextLine = next
+    ? `${relativeDayLabel(next.daysAhead, next.day, next.date)}, ${display12h(next.meeting.start)} · ${next.course.code}`
+    : null;
+  const [headline, detail] = !hasCourses
+    ? ["Your day will show up here.", "Add your courses on the Courses tab."]
+    : termState === "after"
+      ? [
+          "The semester has ended.",
+          `Classes ran until ${term ? formatShortDate(term.end) : "the term end"}. Set new term dates in Settings.`,
+        ]
+      : termState === "before"
+        ? [
+            "The semester hasn't started.",
+            nextLine ? `First class: ${nextLine}` : "No classes are scheduled in the term yet.",
+          ]
+        : skippedToday
+          ? ["No classes today.", `${skippedToday.reason}${nextLine ? ` · Next up: ${nextLine}` : ""}`]
+          : ["No more classes today.", nextLine ? `Next up: ${nextLine}` : "No classes in the next few weeks."];
+
   return (
-    <PopIn key="none">
+    <PopIn key={`none-${termState}`}>
       <View className="border-border rounded-xl border border-dashed px-6 py-6">
-        <Text className="font-display text-2xl font-semibold">
-          {hasCourses ? "No more classes today." : "Your day will show up here."}
-        </Text>
-        <Text className="text-muted-foreground mt-1 text-sm">
-          {!hasCourses
-            ? "Add your courses on the Courses tab."
-            : next
-              ? `Next up: ${relativeDayLabel(next.daysAhead, next.day)}, ${display12h(next.meeting.start)} · ${next.course.code}`
-              : "No classes in the coming week."}
-        </Text>
+        <Text className="font-display text-2xl font-semibold">{headline}</Text>
+        <Text className="text-muted-foreground mt-1 text-sm">{detail}</Text>
       </View>
     </PopIn>
   );

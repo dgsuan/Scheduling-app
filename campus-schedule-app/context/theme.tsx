@@ -3,29 +3,48 @@ import { Moon, Sun } from "lucide-react-native";
 import { colorScheme as nativewindScheme, vars } from "nativewind";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { AppState, Appearance, Platform, View } from "react-native";
+import { AppState, Platform, View, useColorScheme } from "react-native";
 
 import { AmbientBackground } from "@/components/AmbientBackground";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { buildTheme, type Palette, type ThemeScheme } from "@/constants/theme";
+import {
+  APPEARANCE_KEY,
+  DEFAULT_APPEARANCE,
+  THEME_SNAPSHOT_KEY,
+  buildTheme,
+  normalizeAppearance,
+  type Appearance,
+  type BuiltTheme,
+  type Palette,
+  type ThemeScheme,
+} from "@/constants/theme";
 import { getTimeOfDay, msUntilNextPeriod, type TimeOfDay } from "@/lib/timeOfDay";
+import { ensureFonts } from "@/lib/webFonts";
 
-// Global theme: light/dark (OS default, then the user's saved choice) plus
-// a time-of-day "atmosphere" that re-tints the same tokens. One timer,
-// scheduled for the next period boundary — nothing ticks in between.
+// Global theme: the user's Appearance settings (light/dark/system, preset,
+// custom colors, font, size, roundness) plus a time-of-day "atmosphere"
+// that re-tints the same tokens. One timer, scheduled for the next period
+// boundary — nothing ticks in between.
 
-const KEY = "campus-schedule:theme:v1";
+/** Before Appearance existed, only "light"/"dark" was saved here. */
+const LEGACY_SCHEME_KEY = "campus-schedule:theme:v1";
 
 type ThemeCtx = {
   scheme: ThemeScheme;
   tod: TimeOfDay;
   palette: Palette;
+  theme: BuiltTheme;
+  appearance: Appearance;
+  setAppearance: (patch: Partial<Appearance>) => void;
+  resetAppearance: () => void;
   toggle: () => void;
   setScheme: (s: ThemeScheme) => void;
 };
@@ -53,54 +72,135 @@ function useTimeOfDayState(): TimeOfDay {
   return tod;
 }
 
+/** Web reads localStorage synchronously so the first render is already themed. */
+function readSavedAppearanceSync(): Appearance | null {
+  if (Platform.OS !== "web" || typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(APPEARANCE_KEY);
+    if (raw) return normalizeAppearance(JSON.parse(raw));
+    const legacy = localStorage.getItem(LEGACY_SCHEME_KEY);
+    if (legacy === "light" || legacy === "dark") return { ...DEFAULT_APPEARANCE, mode: legacy };
+  } catch {
+    // Unreadable save: fall back to defaults.
+  }
+  return null;
+}
+
+function applyToDocument(theme: BuiltTheme, tod: TimeOfDay) {
+  const root = document.documentElement;
+  for (const [k, v] of Object.entries(theme.tokens)) root.style.setProperty(k, v);
+  root.style.setProperty("--font-sans", theme.fontSans);
+  root.style.setProperty("--font-display", theme.fontDisplay);
+  root.dataset.tod = tod;
+  root.style.colorScheme = theme.scheme;
+  root.style.backgroundColor = theme.palette.bg;
+
+  // Interface size: zoom the whole page, sizing <body> so it still fills the window.
+  const body = document.body;
+  body.style.backgroundColor = theme.palette.bg;
+  if (theme.scale !== 1) {
+    body.style.setProperty("zoom", String(theme.scale));
+    body.style.width = `calc(100% / ${theme.scale})`;
+    body.style.height = `calc(100% / ${theme.scale})`;
+  } else {
+    body.style.removeProperty("zoom");
+    body.style.width = "";
+    body.style.height = "";
+  }
+
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.appendChild(meta);
+  }
+  meta.content = theme.palette.bg;
+
+  try {
+    localStorage.setItem(
+      THEME_SNAPSHOT_KEY,
+      JSON.stringify({
+        tokens: theme.tokens,
+        bg: theme.palette.bg,
+        dark: theme.scheme === "dark",
+        fontSans: theme.fontSans,
+        fontDisplay: theme.fontDisplay,
+        scale: theme.scale,
+      })
+    );
+  } catch {
+    // Storage full or blocked: the pre-paint snapshot is only an optimisation.
+  }
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const system = Appearance.getColorScheme();
-  const [scheme, setSchemeState] = useState<ThemeScheme>(
-    system === "dark" ? "dark" : "light"
+  const [appearance, setAppearanceState] = useState<Appearance>(
+    () => readSavedAppearanceSync() ?? DEFAULT_APPEARANCE
   );
+  const system = useColorScheme();
   const tod = useTimeOfDayState();
 
+  // Native: AsyncStorage is async-only, so load after mount.
+  const loaded = useRef(Platform.OS === "web");
   useEffect(() => {
+    if (Platform.OS === "web") return;
     let cancelled = false;
-    AsyncStorage.getItem(KEY)
-      .then((v) => {
-        if (!cancelled && (v === "light" || v === "dark")) setSchemeState(v);
+    AsyncStorage.multiGet([APPEARANCE_KEY, LEGACY_SCHEME_KEY])
+      .then(([[, raw], [, legacy]]) => {
+        if (cancelled) return;
+        if (raw) setAppearanceState(normalizeAppearance(JSON.parse(raw)));
+        else if (legacy === "light" || legacy === "dark") setAppearanceState({ ...DEFAULT_APPEARANCE, mode: legacy });
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        loaded.current = true;
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const theme = useMemo(() => buildTheme(scheme, tod), [scheme, tod]);
-
-  // Keep NativeWind's `dark:` variants in step, and on web publish the
-  // tokens on <html> so portalled dialogs/popovers inherit them too.
+  // Persist changes (skipping the initial value).
+  const first = useRef(true);
   useEffect(() => {
-    nativewindScheme.set(scheme);
-    if (Platform.OS !== "web") return;
-    const root = document.documentElement;
-    for (const [k, v] of Object.entries(theme.tokens)) root.style.setProperty(k, v);
-    root.dataset.tod = tod;
-    root.style.colorScheme = scheme;
-    document.body.style.backgroundColor = theme.palette.bg;
-  }, [scheme, tod, theme]);
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (!loaded.current) return;
+    AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance)).catch(() => {});
+  }, [appearance]);
 
-  const setScheme = (s: ThemeScheme) => {
-    setSchemeState(s);
-    AsyncStorage.setItem(KEY, s).catch(() => {});
-  };
+  const requested: ThemeScheme =
+    appearance.mode === "system" ? (system === "dark" ? "dark" : "light") : appearance.mode;
+  const theme = useMemo(() => buildTheme(requested, tod, appearance), [requested, tod, appearance]);
+
+  useEffect(() => {
+    nativewindScheme.set(theme.scheme);
+    if (Platform.OS !== "web") return;
+    applyToDocument(theme, tod);
+    ensureFonts(appearance.font, appearance.serifHeadings);
+  }, [theme, tod, appearance.font, appearance.serifHeadings]);
+
+  const setAppearance = useCallback((patch: Partial<Appearance>) => {
+    setAppearanceState((prev) => normalizeAppearance({ ...prev, ...patch }));
+  }, []);
+  const resetAppearance = useCallback(() => setAppearanceState(DEFAULT_APPEARANCE), []);
 
   const value = useMemo<ThemeCtx>(
     () => ({
-      scheme,
+      scheme: theme.scheme,
       tod,
       palette: theme.palette,
-      toggle: () => setScheme(scheme === "dark" ? "light" : "dark"),
-      setScheme,
+      theme,
+      appearance,
+      setAppearance,
+      resetAppearance,
+      // An explicit light/dark choice replaces a custom background.
+      toggle: () => setAppearance({ mode: theme.scheme === "dark" ? "light" : "dark", background: null }),
+      setScheme: (s: ThemeScheme) => setAppearance({ mode: s, background: null }),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scheme, tod, theme]
+    [theme, tod, appearance, setAppearance, resetAppearance]
   );
 
   return (
@@ -119,23 +219,35 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+function useThemeCtx(): ThemeCtx {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("Theme hooks must be used inside <ThemeProvider>");
+  return ctx;
+}
+
 /** Returns the active palette (also carries `scheme`). */
 export function useTheme(): Palette {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider>");
-  return ctx.palette;
+  return useThemeCtx().palette;
 }
 
 export function useTimeOfDay(): TimeOfDay {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error("useTimeOfDay must be used inside <ThemeProvider>");
-  return ctx.tod;
+  return useThemeCtx().tod;
 }
 
 export function useThemeControls() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error("useThemeControls must be used inside <ThemeProvider>");
+  const ctx = useThemeCtx();
   return { scheme: ctx.scheme, toggle: ctx.toggle, setScheme: ctx.setScheme };
+}
+
+export function useAppearance() {
+  const { appearance, setAppearance, resetAppearance, theme } = useThemeCtx();
+  return { appearance, setAppearance, resetAppearance, theme };
+}
+
+/** Page zoom from Appearance (web only) — gesture math divides by it. */
+export function useUiScale(): number {
+  const ctx = useContext(ThemeContext);
+  return Platform.OS === "web" ? (ctx?.appearance.scale ?? 1) : 1;
 }
 
 /** Quiet sun/moon button. */

@@ -1,4 +1,5 @@
 import type { Priority, Task } from "@/context/store";
+import { isoDate } from "@/lib/dates";
 import { display12h } from "@/lib/schedule";
 
 // Small pure helpers shared by the Home dashboard, Tasks tab and Calendar.
@@ -9,11 +10,7 @@ const END_OF_DAY = "23:59";
 /** Tasks due within this window (and not overdue) count as "due soon". */
 export const DUE_SOON_MS = 24 * 60 * 60 * 1000;
 
-export function isoDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
-}
+export { isoDate };
 
 export function todayIso(): string {
   return isoDate(new Date());

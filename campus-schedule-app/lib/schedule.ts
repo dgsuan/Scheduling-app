@@ -1,4 +1,6 @@
-import type { Course, Meeting, Weekday } from "@/context/store";
+import { holidayMap, type Holiday } from "@/constants/holidays";
+import type { Cancellation, Course, Meeting, Weekday } from "@/context/store";
+import { addDaysIso, daysBetween, isoDate, isoToDate, weekdayOf } from "@/lib/dates";
 
 // Pure helpers for turning the user's recurring course meetings into
 // "what's happening now / next" and per-day lookups. No React, no I/O —
@@ -127,38 +129,132 @@ export function hasClassOnWeekday(courses: Course[], weekday: Weekday): boolean 
   return occurrencesOnDay(courses, weekday as Weekday).length > 0;
 }
 
-export type NowAndNext = {
-  ongoing: ClassOccurrence | null;
-  next: (ClassOccurrence & { daysAhead: number }) | null;
+// --- Dated occurrences: term dates, holidays, one-off cancellations -------
+//
+// A course's meetings are a weekly *rule*. Whether a class actually
+// happens on a given date is decided here, in one place, so the home
+// screen, calendar, week view, reminders and .ics export all agree.
+
+export type ScheduleRules = {
+  /** Inclusive semester dates; classes outside them don't happen. */
+  term?: { start: string; end: string };
+  skipRegularHolidays: boolean;
+  skipSpecialHolidays: boolean;
+  /** One-off suspensions of a single occurrence (the rule stays intact). */
+  cancellations: Cancellation[];
 };
 
+export const DEFAULT_RULES: ScheduleRules = {
+  skipRegularHolidays: true,
+  skipSpecialHolidays: true,
+  cancellations: [],
+};
+
+/** Why an occurrence does or doesn't happen. Precedence: term > cancelled > holiday. */
+export type OccurrenceStatus = "scheduled" | "outsideTerm" | "cancelled" | "holiday";
+
+export type DatedOccurrence = ClassOccurrence & {
+  date: string;
+  status: OccurrenceStatus;
+  holiday?: Holiday;
+  cancellation?: Cancellation;
+};
+
+const holidayCache = new Map<number, Map<string, Holiday[]>>();
+function holidaysFor(iso: string): Holiday[] {
+  const year = Number(iso.slice(0, 4));
+  let map = holidayCache.get(year);
+  if (!map) {
+    map = holidayMap(year);
+    holidayCache.set(year, map);
+  }
+  return map.get(iso) ?? [];
+}
+
+/** Every meeting that the weekly rule puts on `iso`, each with its status. */
+export function occurrencesOnDate(
+  courses: Course[],
+  iso: string,
+  rules: ScheduleRules = DEFAULT_RULES
+): DatedOccurrence[] {
+  const base = occurrencesOnDay(courses, weekdayOf(iso));
+  if (!base.length) return [];
+  const outside = !!rules.term && (iso < rules.term.start || iso > rules.term.end);
+  const holiday = holidaysFor(iso).find((h) =>
+    h.type === "regular" ? rules.skipRegularHolidays : rules.skipSpecialHolidays
+  );
+  return base.map((o) => {
+    const cancellation = rules.cancellations.find(
+      (c) => c.courseId === o.course.id && c.date === iso && c.start === o.meeting.start
+    );
+    const status: OccurrenceStatus = outside
+      ? "outsideTerm"
+      : cancellation
+        ? "cancelled"
+        : holiday
+          ? "holiday"
+          : "scheduled";
+    return { ...o, date: iso, status, holiday, cancellation };
+  });
+}
+
+/** Only the classes that actually happen on `iso`. */
+export function classesOnDate(courses: Course[], iso: string, rules: ScheduleRules = DEFAULT_RULES) {
+  return occurrencesOnDate(courses, iso, rules).filter((o) => o.status === "scheduled");
+}
+
+export type TermState = "none" | "before" | "during" | "after";
+
+export function termStateOn(iso: string, rules: ScheduleRules): TermState {
+  if (!rules.term) return "none";
+  if (iso < rules.term.start) return "before";
+  if (iso > rules.term.end) return "after";
+  return "during";
+}
+
+export type NowAndNext = {
+  ongoing: DatedOccurrence | null;
+  next: (DatedOccurrence & { daysAhead: number }) | null;
+  termState: TermState;
+};
+
+/** Days to look ahead for the next class (covers holiday weeks and breaks). */
+const NEXT_CLASS_HORIZON_DAYS = 21;
+const MAX_LOOKAHEAD_DAYS = 400;
+
 /**
- * Given the full course list and "now", find the class currently in
- * session (if any) and the next upcoming one within the next 7 days.
+ * The class in session right now (if any) and the next one that will
+ * actually happen — honouring term dates, holidays and cancellations.
  */
-export function computeNowAndNext(courses: Course[], now: Date): NowAndNext {
-  const today = now.getDay() as Weekday;
+export function computeNowAndNext(
+  courses: Course[],
+  now: Date,
+  rules: ScheduleRules = DEFAULT_RULES
+): NowAndNext {
+  const today = isoDate(now);
   const nowMin = now.getHours() * 60 + now.getMinutes();
+  const termState = termStateOn(today, rules);
 
-  const todays = occurrencesOnDay(courses, today);
   const ongoing =
-    todays.find((o) => nowMin >= o.startMin && nowMin < o.endMin) ?? null;
+    classesOnDate(courses, today, rules).find((o) => nowMin >= o.startMin && nowMin < o.endMin) ?? null;
 
-  let next: (ClassOccurrence & { daysAhead: number }) | null = null;
-  // ahead = 7 is the same weekday next week, so a class that meets once a
-  // week is still found after today's session has ended.
-  for (let ahead = 0; ahead <= 7; ahead++) {
-    const day = (((today + ahead) % 7) + 7) % 7 as Weekday;
-    const occ = occurrencesOnDay(courses, day);
-    const candidate =
-      ahead === 0 ? occ.find((o) => o.startMin > nowMin) : occ[0];
-    if (candidate) {
-      next = { ...candidate, daysAhead: ahead };
-      break;
+  let next: NowAndNext["next"] = null;
+  if (termState !== "after" && courses.length) {
+    const untilTerm = rules.term && termState === "before" ? daysBetween(today, rules.term.start) : 0;
+    const horizon = Math.min(MAX_LOOKAHEAD_DAYS, untilTerm + NEXT_CLASS_HORIZON_DAYS);
+    for (let ahead = 0; ahead <= horizon; ahead++) {
+      const iso = addDaysIso(today, ahead);
+      if (rules.term && iso > rules.term.end) break;
+      const occ = classesOnDate(courses, iso, rules);
+      const candidate = ahead === 0 ? occ.find((o) => o.startMin > nowMin) : occ[0];
+      if (candidate) {
+        next = { ...candidate, daysAhead: ahead };
+        break;
+      }
     }
   }
 
-  return { ongoing, next };
+  return { ongoing, next, termState };
 }
 
 /** 42 -> "42 min", 60 -> "1 hr", 95 -> "1 hr 35 min". */
@@ -170,8 +266,10 @@ export function formatDuration(minutes: number): string {
   return rest ? `${h} hr ${rest} min` : `${h} hr`;
 }
 
-export function relativeDayLabel(daysAhead: number, day: Weekday): string {
+/** "Today", "Tomorrow", "Wednesday", or "Mon, Sep 21" beyond a week. */
+export function relativeDayLabel(daysAhead: number, day: Weekday, iso?: string): string {
   if (daysAhead === 0) return "Today";
   if (daysAhead === 1) return "Tomorrow";
-  return WEEKDAY_LONG[day];
+  if (daysAhead < 7 || !iso) return WEEKDAY_LONG[day];
+  return isoToDate(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }

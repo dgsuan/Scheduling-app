@@ -14,9 +14,18 @@ import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/text";
 import { colors } from "@/constants/theme";
 import { holidaysOn } from "@/constants/holidays";
-import { GENERAL_CANVAS, useCanvas, useCourses, useEvents, useTasks, type Task, type Weekday } from "@/context/store";
+import {
+  GENERAL_CANVAS,
+  useCanvas,
+  useCourses,
+  useEvents,
+  useScheduleRules,
+  useTasks,
+  type Task,
+  type Weekday,
+} from "@/context/store";
 import { agendaForDate, formatShortDate } from "@/lib/calendar";
-import { computeNowAndNext, occurrencesOnDay } from "@/lib/schedule";
+import { classesOnDate, computeNowAndNext, occurrencesOnDate } from "@/lib/schedule";
 import { formatDue, isDueSoon, isOverdue, isoDate, sortTasks, withinNextDays } from "@/lib/tasks";
 import { greeting } from "@/lib/timeOfDay";
 import { useBreakpoint } from "@/lib/useBreakpoint";
@@ -94,8 +103,17 @@ export default function ScheduleHomeScreen() {
 
   const tIso = isoDate(now);
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const { ongoing, next } = useMemo(() => computeNowAndNext(courses, now), [courses, now]);
-  const todays = useMemo(() => occurrencesOnDay(courses, now.getDay() as Weekday), [courses, now]);
+  const rules = useScheduleRules();
+  const { ongoing, next, termState } = useMemo(() => computeNowAndNext(courses, now, rules), [courses, now, rules]);
+  const todays = useMemo(() => classesOnDate(courses, tIso, rules), [courses, tIso, rules]);
+  const skippedToday = useMemo(() => {
+    if (todays.length) return null;
+    const occ = occurrencesOnDate(courses, tIso, rules);
+    const holiday = occ.find((o) => o.status === "holiday");
+    if (holiday) return { reason: holiday.holiday!.name };
+    const cancelled = occ.filter((o) => o.status === "cancelled");
+    return cancelled.length ? { reason: `${cancelled.map((o) => o.course.code).join(", ")} cancelled` } : null;
+  }, [courses, tIso, rules, todays.length]);
 
   // Rows beneath the hero: "Next" (only while something is on), then later.
   const heroOcc = ongoing ?? (next && next.daysAhead === 0 ? next : null);
@@ -144,7 +162,15 @@ export default function ScheduleHomeScreen() {
 
   const schedule = (
     <View>
-      <TodayHero ongoing={ongoing} next={next} now={now} hasCourses={courses.length > 0} />
+      <TodayHero
+        ongoing={ongoing}
+        next={next}
+        termState={termState}
+        skippedToday={skippedToday}
+        term={rules.term}
+        now={now}
+        hasCourses={courses.length > 0}
+      />
       {nextRow || later.length || todaysEvents.length ? (
         <View className="mt-2 px-1">
           {nextRow ? <ScheduleRow occ={nextRow} label="Next" now={now} emphasis /> : null}
@@ -220,7 +246,7 @@ export default function ScheduleHomeScreen() {
       {taskSection}
       <View>
         <SectionTitle right={<LinkButton label="Calendar" href="/calendar" />}>This week</SectionTitle>
-        <WeekStrip courses={courses} tasks={tasks} now={now} />
+        <WeekStrip courses={courses} tasks={tasks} now={now} rules={rules} />
       </View>
       {recentNotes.length ? (
         <View>

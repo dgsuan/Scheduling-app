@@ -240,3 +240,54 @@ transitions via `web:` classes. All of it respects Reduce Motion.
 - React Native Web gives every `View` its own stacking context, so
   overlays (the calendar day popover) need a `zIndex` on an ancestor.
 - `Alert.alert` does nothing on web — use `ConfirmDialog`.
+
+## 6. Scheduling rules and the data model
+
+Everything is still local (AsyncStorage → `localStorage` on web), one key
+per slice in `STORAGE_KEYS` (`context/store.tsx`). Each slice is written
+only when it changes; a failed write (usually quota) surfaces as a toast.
+
+### When does a class happen?
+
+A course's meetings are a weekly **rule**. `lib/schedule.ts` turns the rule
+into **dated occurrences**, each with a status, in one function
+(`occurrencesOnDate`) that the home screen, calendar, week view, reminders
+and `.ics` export all share:
+
+| status        | meaning                                              | stored?                  |
+|---------------|------------------------------------------------------|--------------------------|
+| `scheduled`   | the class happens                                    | —                        |
+| `outsideTerm` | before `settings.term.start` or after `term.end`     | computed                 |
+| `cancelled`   | the user cancelled this one date                     | `cancellations:v1` list  |
+| `holiday`     | a regular/special holiday and skipping is on         | computed (holiday data)  |
+
+Precedence is term → cancelled → holiday. A `Cancellation` is
+`{ courseId, date, start }`, so it targets one meeting on one day and the
+weekly rule is untouched; restoring deletes it. `computeNowAndNext` only
+sees `scheduled` occurrences and looks ahead up to three weeks (or to the
+term start), so holidays, breaks and an ended term all read correctly.
+
+### Other additions (all optional fields; old saves load unchanged)
+
+- **Tasks:** `dueTime`, `start`, `repeat` (rolling series: completing logs a
+  done copy with `seriesId` and moves `due` to the next date; course tasks
+  stop at term end), `subtasks`, `timeSpentSec`, `source` (import key).
+- **Events:** `source` for `.ics` de-duplication.
+- **Courses:** `units`; per-course `grades:v1` (weighted components, scores,
+  optional recorded `finalGrade`). GWA uses UP's 1.00–5.00 scale.
+- **Images:** stored as data URLs (web), downscaled to 1600 px; edits keep
+  `originalUri` so they can be reverted.
+- **Appearance:** `appearance:v1`, applied as CSS variables. A derived
+  snapshot (`campus-schedule-cache:theme`) lets `index.html` paint the right
+  theme before the bundle loads — see `scripts/postbuild-web.mjs`.
+
+Keys prefixed `campus-schedule-cache:` are derived or device-local (theme
+snapshot, fired reminders, focus timer, pre-restore undo copy) and are not
+part of backups.
+
+### Reminders and the installable app
+
+`public/sw.js` makes the app installable and offline-capable. Reminders are
+computed on a timer **while the app is open** (tab or installed window) and
+shown through the service worker. Delivering them while the app is closed
+would need a push server, which this project deliberately doesn't have.

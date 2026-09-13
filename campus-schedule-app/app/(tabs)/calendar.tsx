@@ -1,91 +1,58 @@
 import { ChevronLeft, ChevronRight, Share } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, View } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Platform, ScrollView, View } from "react-native";
 
 import type { EditableAgendaItem } from "@/components/calendar/CalendarDayPopover";
 import { CalendarMonth } from "@/components/calendar/CalendarMonth";
-import { ComingSoonButton } from "@/components/ComingSoonButton";
+import { CalendarWeek } from "@/components/calendar/CalendarWeek";
+import { ClassOccurrenceDialog } from "@/components/calendar/ClassOccurrenceDialog";
+import { ExportIcsDialog } from "@/components/calendar/ExportIcsDialog";
 import { ItemEditorDialog, type EditorTarget } from "@/components/ItemEditorDialog";
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
 import { colors } from "@/constants/theme";
 import { getHolidays } from "@/constants/holidays";
-import { useCourses, useDatedNotes, useEvents, useTasks } from "@/context/store";
+import {
+  useCancellations,
+  useCourses,
+  useDatedNotes,
+  useEvents,
+  useScheduleRules,
+  useTasks,
+} from "@/context/store";
 import { MONTH_NAMES } from "@/lib/calendar";
+import { addDaysIso, isoToDate, startOfWeekIso } from "@/lib/dates";
+import type { DatedOccurrence } from "@/lib/schedule";
+import { shouldIgnoreShortcut } from "@/lib/shortcuts";
+import { isoDate } from "@/lib/tasks";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { cn } from "@/lib/utils";
 
-const EVENTS_TO_EXPORT = [
-  "All events",
-  "Events related to categories",
-  "Events related to courses",
-  "Events related to groups",
-  "My personal events",
-] as const;
+type CalendarView = "month" | "week";
+const VIEW_KEY = "campus-schedule-cache:calendar-view";
 
-const TIME_PERIODS = ["This week", "This month", "Recent and next 60 days", "Custom range"] as const;
-
-function RadioList({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: readonly string[];
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <View className="gap-1">
-      <Text className="mb-1 text-sm font-semibold">{label}</Text>
-      <View role="radiogroup" aria-label={label}>
-        {options.map((o) => {
-          const on = o === value;
-          return (
-            <Pressable
-              key={o}
-              onPress={() => onChange(o)}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: on }}
-              className="flex-row items-center gap-3 rounded-md px-2 py-1.5 web:transition-colors web:hover:bg-accent active:bg-accent"
-            >
-              <View className={cn("size-4 items-center justify-center rounded-full border", on ? "border-primary" : "border-input")}>
-                {on ? <View className="bg-primary size-2 rounded-full" /> : null}
-              </View>
-              <Text className="text-sm">{o}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
+function readSavedView(): CalendarView {
+  if (Platform.OS !== "web") return "month";
+  try {
+    return localStorage.getItem(VIEW_KEY) === "week" ? "week" : "month";
+  } catch {
+    return "month";
+  }
 }
 
-function ExportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const [events, setEvents] = useState<string>(EVENTS_TO_EXPORT[0]);
-  const [period, setPeriod] = useState<string>(TIME_PERIODS[0]);
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-5 sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Export calendar</DialogTitle>
-          <DialogDescription>
-            Choose what to include, then generate a subscribable calendar URL. Not wired up yet.
-          </DialogDescription>
-        </DialogHeader>
-        <RadioList label="Events to export" options={EVENTS_TO_EXPORT} value={events} onChange={setEvents} />
-        <RadioList label="Time period" options={TIME_PERIODS} value={period} onChange={setPeriod} />
-        <View className="flex-row gap-2">
-          <ComingSoonButton label="Get calendar URL" style={{ flex: 1 }} />
-          <ComingSoonButton label="Export" style={{ flex: 1 }} />
-        </View>
-      </DialogContent>
-    </Dialog>
-  );
+/** "Sep 14 – 20, 2026", "Aug 31 – Sep 6, 2026", "Dec 29, 2025 – Jan 4, 2026". */
+function formatWeekRange(weekStart: string): string {
+  const a = isoToDate(weekStart);
+  const b = isoToDate(addDaysIso(weekStart, 6));
+  const mon = (d: Date) => d.toLocaleDateString(undefined, { month: "short" });
+  if (a.getFullYear() !== b.getFullYear())
+    return `${mon(a)} ${a.getDate()}, ${a.getFullYear()} – ${mon(b)} ${b.getDate()}, ${b.getFullYear()}`;
+  if (a.getMonth() !== b.getMonth()) return `${mon(a)} ${a.getDate()} – ${mon(b)} ${b.getDate()}, ${b.getFullYear()}`;
+  return `${mon(a)} ${a.getDate()} – ${b.getDate()}, ${b.getFullYear()}`;
 }
 
 function Legend() {
@@ -123,23 +90,65 @@ export default function CalendarScreen() {
   const { notes } = useDatedNotes();
   const { desktop } = useBreakpoint();
   const today = new Date();
+  const todayIso = isoDate(today);
+  const [view, setViewState] = useState<CalendarView>(readSavedView);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
+  const [weekStart, setWeekStart] = useState(() => startOfWeekIso(todayIso));
   const [editor, setEditor] = useState<EditorTarget | null>(null);
+  const [classOcc, setClassOcc] = useState<DatedOccurrence | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
 
-  const sources = useMemo(() => ({ courses, tasks, events, notes }), [courses, tasks, events, notes]);
+  const rules = useScheduleRules();
+  const { cancelClass, restoreClass } = useCancellations();
+  const sources = useMemo(
+    () => ({ courses, tasks, events, notes, rules }),
+    [courses, tasks, events, notes, rules]
+  );
   const monthHolidays = useMemo(
     () => getHolidays(year).filter((h) => Number(h.date.slice(5, 7)) === month + 1),
     [year, month]
   );
 
+  const setView = (next: CalendarView) => {
+    if (next === view) return;
+    if (next === "week") {
+      // Show the week of today if this month is on screen, else the month's first week.
+      const isCurrent = year === today.getFullYear() && month === today.getMonth();
+      setWeekStart(startOfWeekIso(isCurrent ? todayIso : isoDate(new Date(year, month, 1))));
+    } else {
+      const mid = isoToDate(addDaysIso(weekStart, 3));
+      setYear(mid.getFullYear());
+      setMonth(mid.getMonth());
+    }
+    setViewState(next);
+    if (Platform.OS === "web") {
+      try {
+        localStorage.setItem(VIEW_KEY, next);
+      } catch {
+        // Remembering the view is only a convenience.
+      }
+    }
+  };
+
   const shift = (delta: number) => {
+    if (view === "week") {
+      setWeekStart((w) => addDaysIso(w, delta * 7));
+      return;
+    }
     const d = new Date(year, month + delta, 1);
     setYear(d.getFullYear());
     setMonth(d.getMonth());
   };
-  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+  const goToday = () => {
+    setYear(today.getFullYear());
+    setMonth(today.getMonth());
+    setWeekStart(startOfWeekIso(todayIso));
+  };
+  const onToday =
+    view === "week"
+      ? weekStart === startOfWeekIso(todayIso)
+      : year === today.getFullYear() && month === today.getMonth();
 
   const edit = useCallback((item: EditableAgendaItem) => {
     if (item.kind === "task") setEditor({ mode: "edit", kind: "task", task: item.task });
@@ -147,8 +156,55 @@ export default function CalendarScreen() {
     else setEditor({ mode: "edit", kind: "note", note: item.note });
   }, []);
 
+  const cancel = (o: DatedOccurrence) => cancelClass({ courseId: o.course.id, date: o.date, start: o.meeting.start });
+  const restore = (o: DatedOccurrence) => o.cancellation && restoreClass(o.cancellation.id);
+
+  // Deep links from search / shortcuts: ?today=1, ?event=<id>.
+  const params = useLocalSearchParams<{ today?: string; event?: string }>();
+  useEffect(() => {
+    if (params.today) {
+      goToday();
+      router.setParams({ today: undefined });
+    }
+    if (params.event) {
+      const ev = events.find((e) => e.id === params.event);
+      if (ev) {
+        const d = isoToDate(ev.start);
+        setYear(d.getFullYear());
+        setMonth(d.getMonth());
+        setWeekStart(startOfWeekIso(ev.start));
+        setEditor({ mode: "edit", kind: "event", event: ev });
+      }
+      router.setParams({ event: undefined });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.today, params.event]);
+
+  // ← / → move between months (or weeks).
+  const shiftRef = useRef(shift);
+  shiftRef.current = shift;
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || shouldIgnoreShortcut(e)) return;
+      e.preventDefault();
+      shiftRef.current(e.key === "ArrowLeft" ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Keep a dragged range lit while its create dialog is open.
   const highlight = editor?.mode === "create" ? { start: editor.start, end: editor.end } : null;
+
+  const hint =
+    view === "week"
+      ? Platform.OS === "web"
+        ? "Click a class to cancel or restore it · click an empty slot to add an event"
+        : "Tap a class to cancel or restore it · tap an empty slot to add an event"
+      : Platform.OS === "web"
+        ? "Click a day to see what's on · drag across days to add something"
+        : "Tap a day to see what's on · hold and drag to add something";
 
   return (
     <ScrollView
@@ -157,30 +213,39 @@ export default function CalendarScreen() {
     >
       <ScreenHeader
         eyebrow="Calendar"
-        title={`${MONTH_NAMES[month]} ${year}`}
-        subtitle={
-          Platform.OS === "web"
-            ? "Click a day to see what's on · drag across days to add something"
-            : "Tap a day to see what's on · hold and drag to add something"
-        }
+        title={view === "week" ? formatWeekRange(weekStart) : `${MONTH_NAMES[month]} ${year}`}
+        subtitle={hint}
         right={
           <>
-            {!isCurrentMonth ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onPress={() => {
-                  setYear(today.getFullYear());
-                  setMonth(today.getMonth());
-                }}
-              >
+            <SegmentedControl<CalendarView>
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "month", label: "Month" },
+                { value: "week", label: "Week" },
+              ]}
+              accessibilityLabel="Calendar view"
+              className="mr-1"
+            />
+            {!onToday ? (
+              <Button variant="outline" size="sm" onPress={goToday}>
                 <Text>Today</Text>
               </Button>
             ) : null}
-            <Button variant="ghost" size="icon" onPress={() => shift(-1)} accessibilityLabel="Previous month">
+            <Button
+              variant="ghost"
+              size="icon"
+              onPress={() => shift(-1)}
+              accessibilityLabel={view === "week" ? "Previous week" : "Previous month"}
+            >
               <Icon as={ChevronLeft} size={18} />
             </Button>
-            <Button variant="ghost" size="icon" onPress={() => shift(1)} accessibilityLabel="Next month">
+            <Button
+              variant="ghost"
+              size="icon"
+              onPress={() => shift(1)}
+              accessibilityLabel={view === "week" ? "Next week" : "Next month"}
+            >
               <Icon as={ChevronRight} size={18} />
             </Button>
             <Button variant="ghost" size="icon" onPress={() => setExportOpen(true)} accessibilityLabel="Export calendar">
@@ -192,46 +257,61 @@ export default function CalendarScreen() {
 
       {/* z-10: web gives every View a stacking context; keep the popover above what follows. */}
       <View className="bg-card/80 border-border z-10 rounded-xl border px-1.5 pb-1.5 pt-3 shadow-sm shadow-black/5">
-        <CalendarMonth
-          year={year}
-          month={month}
-          sources={sources}
-          highlight={highlight}
-          onCreateRange={(start, end) => setEditor({ mode: "create", start, end })}
-          onEdit={edit}
-          onToggleTask={(task, done) => updateTask(task.id, { done })}
-        />
-      </View>
-      <Legend />
-
-      <View className="mt-10 max-w-[560px]">
-        <Text className="mb-2 text-[15px] font-semibold">Holidays in {MONTH_NAMES[month]}</Text>
-        {monthHolidays.length === 0 ? (
-          <Text className="text-muted-foreground text-sm">No holidays this month.</Text>
+        {view === "week" ? (
+          <CalendarWeek
+            weekStart={weekStart}
+            sources={sources}
+            onEdit={edit}
+            onCreateAt={(iso, hhmm) => setEditor({ mode: "create", start: iso, end: iso, type: "event", startTime: hhmm })}
+            onClassPress={setClassOcc}
+          />
         ) : (
-          monthHolidays.map((h) => (
-            <View key={h.date + h.name} className="border-border/60 flex-row items-center gap-3 border-b py-2.5">
-              <Text className="text-muted-foreground w-8 text-sm tabular-nums">{Number(h.date.slice(8, 10))}</Text>
-              <View
-                className="size-[6px] rotate-45"
-                style={{ backgroundColor: h.type === "regular" ? colors.holidayRegular : colors.holidaySpecial }}
-              />
-              <Text className="flex-1 text-sm">
-                {h.name}
-                {h.approx ? <Text className="text-muted-foreground text-sm"> (estimated)</Text> : null}
-              </Text>
-              <Text className="text-muted-foreground text-xs">{h.type === "regular" ? "Regular" : "Special"}</Text>
-            </View>
-          ))
+          <CalendarMonth
+            year={year}
+            month={month}
+            sources={sources}
+            highlight={highlight}
+            onCreateRange={(start, end) => setEditor({ mode: "create", start, end })}
+            onEdit={edit}
+            onToggleTask={(task, done) => updateTask(task.id, { done })}
+            onCancelClass={cancel}
+            onRestoreClass={restore}
+          />
         )}
-        <Text className="text-muted-foreground mt-3 text-xs leading-4">
-          Philippine holidays. Movable dates (Holy Week, Chinese New Year) are computed; Eid&apos;l Fitr / Adha
-          depend on moon sighting and are estimates. Always confirm against the official Malacañang proclamation.
-        </Text>
       </View>
+      {view === "month" ? <Legend /> : null}
+
+      {view === "month" ? (
+        <View className="mt-10 max-w-[560px]">
+          <Text className="mb-2 text-[15px] font-semibold">Holidays in {MONTH_NAMES[month]}</Text>
+          {monthHolidays.length === 0 ? (
+            <Text className="text-muted-foreground text-sm">No holidays this month.</Text>
+          ) : (
+            monthHolidays.map((h) => (
+              <View key={h.date + h.name} className="border-border/60 flex-row items-center gap-3 border-b py-2.5">
+                <Text className="text-muted-foreground w-8 text-sm tabular-nums">{Number(h.date.slice(8, 10))}</Text>
+                <View
+                  className="size-[6px] rotate-45"
+                  style={{ backgroundColor: h.type === "regular" ? colors.holidayRegular : colors.holidaySpecial }}
+                />
+                <Text className="flex-1 text-sm">
+                  {h.name}
+                  {h.approx ? <Text className="text-muted-foreground text-sm"> (estimated)</Text> : null}
+                </Text>
+                <Text className="text-muted-foreground text-xs">{h.type === "regular" ? "Regular" : "Special"}</Text>
+              </View>
+            ))
+          )}
+          <Text className="text-muted-foreground mt-3 text-xs leading-4">
+            Philippine holidays. Movable dates (Holy Week, Chinese New Year) are computed; Eid&apos;l Fitr / Adha
+            depend on moon sighting and are estimates. Always confirm against the official Malacañang proclamation.
+          </Text>
+        </View>
+      ) : null}
 
       <ItemEditorDialog target={editor} onClose={() => setEditor(null)} />
-      <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
+      <ClassOccurrenceDialog occ={classOcc} onClose={() => setClassOcc(null)} onCancelClass={cancel} onRestoreClass={restore} />
+      <ExportIcsDialog open={exportOpen} onOpenChange={setExportOpen} />
     </ScrollView>
   );
 }

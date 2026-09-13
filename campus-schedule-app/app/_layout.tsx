@@ -9,6 +9,10 @@ import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { AppServices } from "@/components/AppServices";
+import { CommandPaletteProvider } from "@/components/CommandPalette";
+import { FocusProvider } from "@/context/focus";
+import { ToastProvider } from "@/components/Toaster";
 import { AppProvider } from "@/context/store";
 import { ThemeProvider, useTheme } from "@/context/theme";
 
@@ -42,6 +46,7 @@ function ThemedShell() {
           <Stack.Screen name="(tabs)" />
         </Stack>
       </NavThemeProvider>
+      <AppServices />
       {/* Mount point for Reusables overlays (dialogs, popovers, selects). */}
       <PortalHost />
     </>
@@ -53,9 +58,15 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AppProvider>
-            <ThemedShell />
-          </AppProvider>
+          <ToastProvider>
+            <AppProvider>
+              <FocusProvider>
+                <CommandPaletteProvider>
+                  <ThemedShell />
+                </CommandPaletteProvider>
+              </FocusProvider>
+            </AppProvider>
+          </ToastProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -1,7 +1,15 @@
 import type { Holiday } from "@/constants/holidays";
 import type { CalendarEvent, Course, DatedNote, Task, Weekday } from "@/context/store";
-import { display12h, formatRange, occurrencesOnDay, type ClassOccurrence } from "@/lib/schedule";
-import { isoDate } from "@/lib/tasks";
+import { projectedDates } from "@/lib/recurrence";
+import {
+  DEFAULT_RULES,
+  display12h,
+  formatRange,
+  occurrencesOnDate,
+  type DatedOccurrence,
+  type ScheduleRules,
+} from "@/lib/schedule";
+import { addDaysIso, isoDate, isoToDate } from "@/lib/dates";
 
 // Pure date + agenda helpers for the Calendar tab and the date pickers.
 // Dates are local "YYYY-MM-DD" strings throughout (no timezones).
@@ -13,15 +21,7 @@ export const MONTH_NAMES = [
 
 export const WEEKDAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"];
 
-export function isoToDate(iso: string): Date {
-  return new Date(iso + "T00:00:00");
-}
-
-export function addDaysIso(iso: string, days: number): string {
-  const d = isoToDate(iso);
-  d.setDate(d.getDate() + days);
-  return isoDate(d);
-}
+export { addDaysIso, isoToDate };
 
 /** True when `iso` falls within [start, end] (end defaults to start). */
 export function spansDate(start: string, end: string | undefined, iso: string): boolean {
@@ -73,9 +73,18 @@ export function buildMonthCells(year: number, month: number, includeOutside = fa
 
 export type AgendaItem =
   | { kind: "holiday"; key: string; title: string; holiday: Holiday }
-  | { kind: "class"; key: string; title: string; timeLabel: string; sortMin: number; occ: ClassOccurrence }
+  | { kind: "class"; key: string; title: string; timeLabel: string; sortMin: number; occ: DatedOccurrence }
   | { kind: "event"; key: string; title: string; timeLabel: string; sortMin: number; event: CalendarEvent }
-  | { kind: "task"; key: string; title: string; timeLabel: string; sortMin: number; task: Task }
+  | {
+      kind: "task";
+      key: string;
+      title: string;
+      timeLabel: string;
+      sortMin: number;
+      task: Task;
+      /** A future date of a recurring series (read-only preview). */
+      projected?: boolean;
+    }
   | { kind: "note"; key: string; title: string; note: DatedNote };
 
 export type AgendaSources = {
@@ -84,6 +93,8 @@ export type AgendaSources = {
   events: CalendarEvent[];
   notes: DatedNote[];
   holidays: Holiday[];
+  /** Term dates, holiday skipping and cancellations. */
+  rules?: ScheduleRules;
 };
 
 function minutesOf(hhmm: string | undefined, fallback: number): number {
@@ -112,10 +123,14 @@ function taskTimeLabel(t: Task, iso: string): string {
 export function agendaForDate(iso: string, weekday: Weekday, src: AgendaSources): AgendaItem[] {
   const timed: Exclude<AgendaItem, { kind: "holiday" } | { kind: "note" }>[] = [];
 
-  for (const occ of occurrencesOnDay(src.courses, weekday)) {
+  const rules = src.rules ?? DEFAULT_RULES;
+  // Cancelled and holiday classes stay listed (so they can be restored /
+  // explained); dates outside the term simply have no classes.
+  for (const occ of occurrencesOnDate(src.courses, iso, rules)) {
+    if (occ.status === "outsideTerm") continue;
     timed.push({
       kind: "class",
-      key: `c-${occ.course.id}-${occ.startMin}`,
+      key: `c-${occ.course.id}-${iso}-${occ.startMin}`,
       title: occ.course.code,
       timeLabel: formatRange(occ.meeting.start, occ.meeting.end),
       sortMin: occ.startMin,
@@ -134,15 +149,27 @@ export function agendaForDate(iso: string, weekday: Weekday, src: AgendaSources)
     });
   }
   for (const t of src.tasks) {
-    if (!t.due || !spansDate(t.start ?? t.due, t.due, iso)) continue;
-    timed.push({
-      kind: "task",
-      key: t.id,
-      title: t.title || "Untitled task",
-      timeLabel: taskTimeLabel(t, iso),
-      sortMin: t.due === iso ? minutesOf(t.dueTime, 24 * 60) : 24 * 60,
-      task: t,
-    });
+    if (!t.due) continue;
+    if (spansDate(t.start ?? t.due, t.due, iso)) {
+      timed.push({
+        kind: "task",
+        key: t.id,
+        title: t.title || "Untitled task",
+        timeLabel: taskTimeLabel(t, iso),
+        sortMin: t.due === iso ? minutesOf(t.dueTime, 24 * 60) : 24 * 60,
+        task: t,
+      });
+    } else if (t.repeat && !t.done && iso > t.due && projectedDates(t, iso, iso, rules.term?.end).length) {
+      timed.push({
+        kind: "task",
+        key: `${t.id}@${iso}`,
+        title: t.title || "Untitled task",
+        timeLabel: t.dueTime ? `Due ${display12h(t.dueTime)} · repeats` : "Repeats",
+        sortMin: minutesOf(t.dueTime, 24 * 60),
+        task: t,
+        projected: true,
+      });
+    }
   }
   timed.sort((a, b) => a.sortMin - b.sortMin);
 

@@ -1,5 +1,9 @@
+import { Search } from "lucide-react-native";
 import { View } from "react-native";
 
+import { useCommandPalette } from "@/components/CommandPalette";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
 import { ThemeToggle } from "@/context/theme";
 import { useBreakpoint } from "@/lib/useBreakpoint";
@@ -22,6 +26,7 @@ export function ScreenHeader({
   right?: React.ReactNode;
 }) {
   const { wide } = useBreakpoint();
+  const { setOpen } = useCommandPalette();
   return (
     <View className="mb-6 gap-3">
       <View className={cn("flex-row justify-between gap-4", wide ? "items-end" : "items-start")}>
@@ -41,7 +46,12 @@ export function ScreenHeader({
         {wide ? (
           right ? <View className="flex-row items-center gap-1">{right}</View> : null
         ) : (
-          <ThemeToggle />
+          <View className="flex-row items-center">
+            <Button variant="ghost" size="icon" onPress={() => setOpen(true)} accessibilityLabel="Search">
+              <Icon as={Search} size={17} className="text-muted-foreground" />
+            </Button>
+            <ThemeToggle />
+          </View>
         )}
       </View>
       {!wide && right ? <View className="-ml-2 flex-row flex-wrap items-center gap-1">{right}</View> : null}

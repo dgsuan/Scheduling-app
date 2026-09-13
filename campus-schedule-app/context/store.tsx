@@ -10,9 +10,14 @@ import {
 } from "react";
 
 import { colors } from "@/constants/theme";
+import { addDaysIso, daysBetween } from "@/lib/dates";
+import type { ImportedEvent, ImportedTask } from "@/lib/ics";
+import { nextRepeatDate, repeatStop } from "@/lib/recurrence";
+import type { ScheduleRules } from "@/lib/schedule";
 
-// App-wide local data store: courses, per-canvas notes/drawings, and
-// tasks. Everything lives on-device (AsyncStorage) — no account, no
+// App-wide local data store: courses, per-canvas notes/drawings, tasks,
+// events, planner settings, class cancellations and grades. Everything
+// lives on-device (AsyncStorage → localStorage on web) — no account, no
 // network — matching ARCHITECTURE.md's "start local-first" MVP call.
 
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Sunday
@@ -32,6 +37,8 @@ export type Course = {
   instructor?: string;
   color: string;
   meetings: Meeting[];
+  /** Academic units, for GWA. Absent = 3. */
+  units?: number;
 };
 
 // --- Canvas (Notes tab) --------------------------------------------------
@@ -62,7 +69,16 @@ export type CanvasItem =
       color: string;
       entries: TodoEntry[];
     })
-  | (CanvasBase & { kind: "image"; uri: string; width: number; height: number })
+  | (CanvasBase & {
+      kind: "image";
+      uri: string;
+      width: number;
+      height: number;
+      /** The image as first added, kept after edits so they can be reverted. */
+      originalUri?: string;
+      originalWidth?: number;
+      originalHeight?: number;
+    })
   | (CanvasBase & {
       kind: "document";
       uri: string;
@@ -100,6 +116,19 @@ export const GENERAL_CANVAS = "general";
 
 export type Priority = "low" | "medium" | "high";
 
+export type Subtask = { id: string; text: string; done: boolean };
+
+export type TaskRepeat = {
+  freq: "daily" | "weekdays" | "weekly";
+  /** For "weekly": which weekdays. */
+  weekdays?: Weekday[];
+  /** Inclusive last possible date. */
+  until?: string;
+};
+
+/** Where an imported item came from; `key` de-duplicates re-imports. */
+export type ImportSource = { kind: "ics"; key: string };
+
 export type Task = {
   id: string;
   title: string;
@@ -112,6 +141,15 @@ export type Task = {
   done: boolean;
   courseId?: string;
   createdAt: number;
+  /** Recurring series: the task holds its *current* occurrence. */
+  repeat?: TaskRepeat;
+  /** On a completed occurrence copy: the series it came from. */
+  seriesId?: string;
+  completedAt?: number;
+  subtasks?: Subtask[];
+  /** Accumulated focus-timer time. */
+  timeSpentSec?: number;
+  source?: ImportSource;
 };
 
 // --- Calendar events ---------------------------------------------------
@@ -125,12 +163,55 @@ export type CalendarEvent = {
   startTime?: string;
   endTime?: string;
   createdAt: number;
+  source?: ImportSource;
 };
 
 /** A text note (from any canvas) that carries a date. */
 export type DatedNote = Extract<CanvasItem, { kind: "text" }> & {
   canvasId: string;
   date: string;
+};
+
+// --- Schedule settings & exceptions ------------------------------------
+
+/** A single class occurrence the user marked as not happening. */
+export type Cancellation = {
+  id: string;
+  courseId: string;
+  date: string; // ISO
+  /** The meeting's start "HH:MM" — identifies which meeting that day. */
+  start: string;
+  createdAt: number;
+};
+
+export type ReminderSettings = {
+  enabled: boolean;
+  classLeadMin: number;
+  taskLeadMin: number;
+};
+
+export type PlannerSettings = {
+  term?: { start: string; end: string };
+  skipRegularHolidays: boolean;
+  skipSpecialHolidays: boolean;
+  reminders: ReminderSettings;
+};
+
+export const DEFAULT_SETTINGS: PlannerSettings = {
+  skipRegularHolidays: true,
+  skipSpecialHolidays: true,
+  reminders: { enabled: false, classLeadMin: 10, taskLeadMin: 60 },
+};
+
+// --- Grades ------------------------------------------------------------
+
+export type GradeComponent = { id: string; name: string; weight: number };
+export type GradeEntry = { id: string; componentId: string; name: string; score: number; total: number };
+export type CourseGrades = {
+  components: GradeComponent[];
+  entries: GradeEntry[];
+  /** Recorded final grade (UP scale); overrides the estimate. */
+  finalGrade?: number;
 };
 
 // --- Store shape -----------------------------------------------------
@@ -147,6 +228,7 @@ type StoreShape = {
   addItem: (canvasId: string, item: NewCanvasItem) => void;
   updateItem: (canvasId: string, id: string, patch: Partial<CanvasItem>) => void;
   removeItem: (canvasId: string, id: string) => void;
+  restoreItem: (canvasId: string, item: CanvasItem) => void;
   /** Move an item (with its id) from one canvas into another (e.g. a folder). */
   moveItem: (fromCanvasId: string, toCanvasId: string, itemId: string) => void;
   /** Remove a folder item and every canvas nested beneath it. */
@@ -156,21 +238,47 @@ type StoreShape = {
   removeDrawing: (canvasId: string, id: string) => void;
 
   tasks: Task[];
-  addTask: (task: Omit<Task, "id" | "createdAt">) => void;
+  addTask: (task: Omit<Task, "id" | "createdAt">) => string;
   updateTask: (id: string, patch: Partial<Omit<Task, "id">>) => void;
   removeTask: (id: string) => void;
+  restoreTask: (task: Task) => void;
+  /** Recurring: move the series to its next date without logging a completion. */
+  skipTaskOccurrence: (id: string) => void;
+  setSubtaskDone: (taskId: string, subtaskId: string, done: boolean) => void;
+  addTimeSpent: (taskId: string, seconds: number) => void;
   clearCompletedTasks: () => void;
 
   events: CalendarEvent[];
   addEvent: (event: Omit<CalendarEvent, "id" | "createdAt">) => void;
   updateEvent: (id: string, patch: Partial<Omit<CalendarEvent, "id">>) => void;
   removeEvent: (id: string) => void;
+  restoreEvent: (event: CalendarEvent) => void;
+
+  upsertImported: (items: { tasks: ImportedTask[]; events: ImportedEvent[] }) => void;
+
+  settings: PlannerSettings;
+  updateSettings: (patch: Partial<PlannerSettings>) => void;
+
+  cancellations: Cancellation[];
+  cancelClass: (c: Pick<Cancellation, "courseId" | "date" | "start">) => void;
+  restoreClass: (id: string) => void;
+
+  grades: Record<string, CourseGrades>;
+  setCourseGrades: (courseId: string, grades: CourseGrades) => void;
+
+  /** Last persistence failure (usually storage quota), for the UI to surface. */
+  storageError: string | null;
 };
 
-const COURSES_KEY = "campus-schedule:courses:v1";
-const CANVASES_KEY = "campus-schedule:canvases:v2";
-const TASKS_KEY = "campus-schedule:tasks:v1";
-const EVENTS_KEY = "campus-schedule:events:v1";
+export const STORAGE_KEYS = {
+  courses: "campus-schedule:courses:v1",
+  canvases: "campus-schedule:canvases:v2",
+  tasks: "campus-schedule:tasks:v1",
+  events: "campus-schedule:events:v1",
+  settings: "campus-schedule:settings:v1",
+  cancellations: "campus-schedule:cancellations:v1",
+  grades: "campus-schedule:grades:v1",
+} as const;
 
 // Migration: an earlier build stored loose `strokes` per canvas. Fold any
 // such strokes into a single movable drawing so old notes aren't lost.
@@ -215,6 +323,15 @@ function normalizeCanvases(raw: unknown): Record<string, CanvasData> {
   return out;
 }
 
+function normalizeSettings(raw: unknown): PlannerSettings {
+  const s = (raw && typeof raw === "object" ? raw : {}) as Partial<PlannerSettings>;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...s,
+    reminders: { ...DEFAULT_SETTINGS.reminders, ...(s.reminders ?? {}) },
+  };
+}
+
 const SEED_COURSES: Course[] = [
   {
     id: "seed-cmsc13",
@@ -233,10 +350,54 @@ const EMPTY_CANVAS: CanvasData = { items: [], drawings: [] };
 
 const StoreContext = createContext<StoreShape | null>(null);
 
-function uid(prefix: string): string {
+export function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 7)}`;
+}
+
+/**
+ * Completing a recurring task: log a done copy of this occurrence and move
+ * the series to its next date (or simply finish it after the last one).
+ */
+function rollSeries(task: Task, merged: Task, settings: PlannerSettings, logCompletion: boolean): Task[] {
+  const stop = repeatStop(merged, settings.term?.end);
+  const next = merged.repeat && merged.due ? nextRepeatDate(merged.repeat, merged.due, stop) : null;
+  if (!next) return logCompletion ? [{ ...merged, done: true, completedAt: Date.now() }] : [];
+  const span = merged.start && merged.due ? daysBetween(merged.start, merged.due) : 0;
+  const series: Task = {
+    ...merged,
+    done: false,
+    completedAt: undefined,
+    due: next,
+    start: merged.start ? addDaysIso(next, -span) : undefined,
+    subtasks: merged.subtasks?.map((s) => ({ ...s, done: false })),
+    timeSpentSec: undefined,
+  };
+  if (!logCompletion) return [series];
+  const copy: Task = {
+    ...merged,
+    id: uid("task"),
+    done: true,
+    completedAt: Date.now(),
+    repeat: undefined,
+    seriesId: task.id,
+  };
+  return [copy, series];
+}
+
+/** Persist one slice whenever it changes (after the initial load). */
+function usePersist(key: string, value: unknown, ready: boolean, onError: (e: unknown) => void) {
+  const first = useRef(true);
+  useEffect(() => {
+    if (!ready) return;
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    AsyncStorage.setItem(key, JSON.stringify(value)).catch(onError);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, key, value]);
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -245,28 +406,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [canvases, setCanvases] = useState<Record<string, CanvasData>>({});
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [settings, setSettings] = useState<PlannerSettings>(DEFAULT_SETTINGS);
+  const [cancellations, setCancellations] = useState<Cancellation[]>([]);
+  const [grades, setGrades] = useState<Record<string, CourseGrades>>({});
+  const [storageError, setStorageError] = useState<string | null>(null);
+
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [rawCourses, rawCanvases, rawTasks, rawEvents] = await Promise.all([
-          AsyncStorage.getItem(COURSES_KEY),
-          AsyncStorage.getItem(CANVASES_KEY),
-          AsyncStorage.getItem(TASKS_KEY),
-          AsyncStorage.getItem(EVENTS_KEY),
-        ]);
+        const keys = Object.values(STORAGE_KEYS);
+        const pairs = await AsyncStorage.multiGet(keys);
         if (cancelled) return;
-        setCourses(rawCourses ? (JSON.parse(rawCourses) as Course[]) : SEED_COURSES);
-        setCanvases(rawCanvases ? normalizeCanvases(JSON.parse(rawCanvases)) : {});
-        setTasks(rawTasks ? (JSON.parse(rawTasks) as Task[]) : []);
-        setEvents(rawEvents ? (JSON.parse(rawEvents) as CalendarEvent[]) : []);
+        const raw = Object.fromEntries(pairs) as Record<string, string | null>;
+        const parse = <T,>(key: string, fallback: T): T => {
+          const v = raw[key];
+          if (v == null) return fallback;
+          try {
+            return JSON.parse(v) as T;
+          } catch {
+            return fallback;
+          }
+        };
+        setCourses(raw[STORAGE_KEYS.courses] ? parse(STORAGE_KEYS.courses, SEED_COURSES) : SEED_COURSES);
+        setCanvases(normalizeCanvases(parse(STORAGE_KEYS.canvases, {})));
+        setTasks(parse(STORAGE_KEYS.tasks, []));
+        setEvents(parse(STORAGE_KEYS.events, []));
+        setSettings(normalizeSettings(parse(STORAGE_KEYS.settings, {})));
+        setCancellations(parse(STORAGE_KEYS.cancellations, []));
+        setGrades(parse(STORAGE_KEYS.grades, {}));
       } catch {
-        if (!cancelled) {
-          setCourses(SEED_COURSES);
-          setCanvases({});
-          setTasks([]);
-        }
+        if (!cancelled) setCourses(SEED_COURSES);
       } finally {
         if (!cancelled) setReady(true);
       }
@@ -276,18 +449,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const persisted = useRef(false);
-  useEffect(() => {
-    if (!ready) return;
-    if (!persisted.current) {
-      persisted.current = true;
-      return;
-    }
-    AsyncStorage.setItem(COURSES_KEY, JSON.stringify(courses)).catch(() => {});
-    AsyncStorage.setItem(CANVASES_KEY, JSON.stringify(canvases)).catch(() => {});
-    AsyncStorage.setItem(TASKS_KEY, JSON.stringify(tasks)).catch(() => {});
-    AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(events)).catch(() => {});
-  }, [ready, courses, canvases, tasks, events]);
+  const onPersistError = useCallback((e: unknown) => {
+    const quota = e instanceof Error && /quota|exceeded/i.test(`${e.name} ${e.message}`);
+    setStorageError(
+      quota
+        ? "Storage is full — your latest changes couldn't be saved. Remove large images or export a backup."
+        : "Couldn't save your latest changes."
+    );
+  }, []);
+
+  usePersist(STORAGE_KEYS.courses, courses, ready, onPersistError);
+  usePersist(STORAGE_KEYS.canvases, canvases, ready, onPersistError);
+  usePersist(STORAGE_KEYS.tasks, tasks, ready, onPersistError);
+  usePersist(STORAGE_KEYS.events, events, ready, onPersistError);
+  usePersist(STORAGE_KEYS.settings, settings, ready, onPersistError);
+  usePersist(STORAGE_KEYS.cancellations, cancellations, ready, onPersistError);
+  usePersist(STORAGE_KEYS.grades, grades, ready, onPersistError);
 
   // Courses ----------------------------------------------------------
   const addCourse = useCallback((course: Omit<Course, "id">) => {
@@ -310,6 +487,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
     setTasks((prev) => prev.map((t) => (t.courseId === id ? { ...t, courseId: undefined } : t)));
+    setCancellations((prev) => prev.filter((c) => c.courseId !== id));
+    setGrades((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }, []);
 
   // Canvas ----------------------------------------------------------
@@ -349,6 +533,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...c,
         items: c.items.filter((it) => it.id !== id),
       }));
+    },
+    [mutateCanvas]
+  );
+  const restoreItem = useCallback(
+    (canvasId: string, item: CanvasItem) => {
+      mutateCanvas(canvasId, (c) =>
+        c.items.some((it) => it.id === item.id) ? c : { ...c, items: [...c.items, item] }
+      );
     },
     [mutateCanvas]
   );
@@ -427,19 +619,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Tasks ----------------------------------------------------------
   const addTask = useCallback((task: Omit<Task, "id" | "createdAt">) => {
-    setTasks((prev) => [
-      ...prev,
-      { ...task, id: uid("task"), createdAt: Date.now() },
-    ]);
+    const id = uid("task");
+    setTasks((prev) => [...prev, { ...task, id, createdAt: Date.now() }]);
+    return id;
   }, []);
-  const updateTask = useCallback(
-    (id: string, patch: Partial<Omit<Task, "id">>) => {
-      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-    },
-    []
-  );
+  const updateTask = useCallback((id: string, patch: Partial<Omit<Task, "id">>) => {
+    setTasks((prev) =>
+      prev.flatMap((t) => {
+        if (t.id !== id) return [t];
+        const merged = { ...t, ...patch };
+        if (patch.done === true && !t.done && t.repeat && t.due) {
+          return rollSeries(t, merged, settingsRef.current, true);
+        }
+        return [merged];
+      })
+    );
+  }, []);
   const removeTask = useCallback((id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+  const restoreTask = useCallback((task: Task) => {
+    setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev : [...prev, task]));
+  }, []);
+  const skipTaskOccurrence = useCallback((id: string) => {
+    setTasks((prev) =>
+      prev.flatMap((t) => (t.id === id && t.repeat ? rollSeries(t, t, settingsRef.current, false) : [t]))
+    );
+  }, []);
+  const setSubtaskDone = useCallback(
+    (taskId: string, subtaskId: string, done: boolean) => {
+      const task = tasksRef.current.find((t) => t.id === taskId);
+      if (!task?.subtasks) return;
+      const subtasks = task.subtasks.map((s) => (s.id === subtaskId ? { ...s, done } : s));
+      const allDone = subtasks.length > 0 && subtasks.every((s) => s.done);
+      // Finishing the last step finishes the task; unticking a step reopens it.
+      updateTask(taskId, {
+        subtasks,
+        ...(allDone && !task.done ? { done: true } : !done && task.done ? { done: false } : {}),
+      });
+    },
+    [updateTask]
+  );
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+  const addTimeSpent = useCallback((taskId: string, seconds: number) => {
+    if (seconds <= 0) return;
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, timeSpentSec: Math.round((t.timeSpentSec ?? 0) + seconds) } : t))
+    );
   }, []);
   const clearCompletedTasks = useCallback(() => {
     setTasks((prev) => prev.filter((t) => !t.done));
@@ -458,6 +685,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const removeEvent = useCallback((id: string) => {
     setEvents((prev) => prev.filter((e) => e.id !== id));
   }, []);
+  const restoreEvent = useCallback((event: CalendarEvent) => {
+    setEvents((prev) => (prev.some((e) => e.id === event.id) ? prev : [...prev, event]));
+  }, []);
+
+  // Import: update items already imported (matched by source key), add new ones.
+  const upsertImported = useCallback((items: { tasks: ImportedTask[]; events: ImportedEvent[] }) => {
+    if (items.tasks.length) {
+      setTasks((prev) => {
+        const byKey = new Map(items.tasks.map((t) => [t.source.key, t]));
+        const seen = new Set<string>();
+        const updated = prev.map((t) => {
+          const incoming = t.source && byKey.get(t.source.key);
+          if (!incoming) return t;
+          seen.add(t.source!.key);
+          return { ...t, title: incoming.title, due: incoming.due, dueTime: incoming.dueTime, courseId: t.courseId ?? incoming.courseId };
+        });
+        const added = items.tasks
+          .filter((t) => !seen.has(t.source.key))
+          .map((t) => ({ ...t, id: uid("task"), createdAt: Date.now(), done: false }));
+        return [...updated, ...added];
+      });
+    }
+    if (items.events.length) {
+      setEvents((prev) => {
+        const byKey = new Map(items.events.map((e) => [e.source.key, e]));
+        const seen = new Set<string>();
+        const updated = prev.map((e) => {
+          const incoming = e.source && byKey.get(e.source.key);
+          if (!incoming) return e;
+          seen.add(e.source!.key);
+          return { ...e, ...incoming };
+        });
+        const added = items.events
+          .filter((e) => !seen.has(e.source.key))
+          .map((e) => ({ ...e, id: uid("event"), createdAt: Date.now() }));
+        return [...updated, ...added];
+      });
+    }
+  }, []);
+
+  // Settings, cancellations, grades ----------------------------------
+  const updateSettings = useCallback((patch: Partial<PlannerSettings>) => {
+    setSettings((prev) => normalizeSettings({ ...prev, ...patch }));
+  }, []);
+  const cancelClass = useCallback((c: Pick<Cancellation, "courseId" | "date" | "start">) => {
+    setCancellations((prev) =>
+      prev.some((x) => x.courseId === c.courseId && x.date === c.date && x.start === c.start)
+        ? prev
+        : [...prev, { ...c, id: uid("cancel"), createdAt: Date.now() }]
+    );
+  }, []);
+  const restoreClass = useCallback((id: string) => {
+    setCancellations((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+  const setCourseGrades = useCallback((courseId: string, g: CourseGrades) => {
+    setGrades((prev) => ({ ...prev, [courseId]: g }));
+  }, []);
 
   const value = useMemo<StoreShape>(
     () => ({
@@ -470,6 +754,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addItem,
       updateItem,
       removeItem,
+      restoreItem,
       moveItem,
       removeFolder,
       addDrawing,
@@ -479,11 +764,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addTask,
       updateTask,
       removeTask,
+      restoreTask,
+      skipTaskOccurrence,
+      setSubtaskDone,
+      addTimeSpent,
       clearCompletedTasks,
       events,
       addEvent,
       updateEvent,
       removeEvent,
+      restoreEvent,
+      upsertImported,
+      settings,
+      updateSettings,
+      cancellations,
+      cancelClass,
+      restoreClass,
+      grades,
+      setCourseGrades,
+      storageError,
     }),
     [
       ready,
@@ -495,6 +794,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addItem,
       updateItem,
       removeItem,
+      restoreItem,
       moveItem,
       removeFolder,
       addDrawing,
@@ -504,11 +804,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addTask,
       updateTask,
       removeTask,
+      restoreTask,
+      skipTaskOccurrence,
+      setSubtaskDone,
+      addTimeSpent,
       clearCompletedTasks,
       events,
       addEvent,
       updateEvent,
       removeEvent,
+      restoreEvent,
+      upsertImported,
+      settings,
+      updateSettings,
+      cancellations,
+      cancelClass,
+      restoreClass,
+      grades,
+      setCourseGrades,
+      storageError,
     ]
   );
 
@@ -537,6 +851,7 @@ export function useCanvas(canvasId: string) {
     updateItem: (id: string, patch: Partial<CanvasItem>) =>
       s.updateItem(canvasId, id, patch),
     removeItem: (id: string) => s.removeItem(canvasId, id),
+    restoreItem: (item: CanvasItem) => s.restoreItem(canvasId, item),
     moveItemTo: (toCanvasId: string, id: string) => s.moveItem(canvasId, toCanvasId, id),
     removeFolder: (folderId: string) => s.removeFolder(canvasId, folderId),
     addDrawing: (drawing: Omit<Drawing, "id">) => s.addDrawing(canvasId, drawing),
@@ -546,6 +861,11 @@ export function useCanvas(canvasId: string) {
   };
 }
 
+/** Every canvas (for search and for resolving a note's folder path). */
+export function useAllCanvases() {
+  return useStore().canvases;
+}
+
 export function useTasks() {
   const {
     ready,
@@ -553,14 +873,63 @@ export function useTasks() {
     addTask,
     updateTask,
     removeTask,
+    restoreTask,
+    skipTaskOccurrence,
+    setSubtaskDone,
+    addTimeSpent,
     clearCompletedTasks,
   } = useStore();
-  return { ready, tasks, addTask, updateTask, removeTask, clearCompletedTasks };
+  return {
+    ready,
+    tasks,
+    addTask,
+    updateTask,
+    removeTask,
+    restoreTask,
+    skipTaskOccurrence,
+    setSubtaskDone,
+    addTimeSpent,
+    clearCompletedTasks,
+  };
 }
 
 export function useEvents() {
-  const { ready, events, addEvent, updateEvent, removeEvent } = useStore();
-  return { ready, events, addEvent, updateEvent, removeEvent };
+  const { ready, events, addEvent, updateEvent, removeEvent, restoreEvent } = useStore();
+  return { ready, events, addEvent, updateEvent, removeEvent, restoreEvent };
+}
+
+export function useImport() {
+  const { tasks, events, courses, upsertImported } = useStore();
+  return { tasks, events, courses, upsertImported };
+}
+
+export function useSettings() {
+  const { ready, settings, updateSettings, storageError } = useStore();
+  return { ready, settings, updateSettings, storageError };
+}
+
+export function useCancellations() {
+  const { cancellations, cancelClass, restoreClass } = useStore();
+  return { cancellations, cancelClass, restoreClass };
+}
+
+export function useGrades() {
+  const { grades, setCourseGrades } = useStore();
+  return { grades, setCourseGrades };
+}
+
+/** The rules every schedule computation should use (term, holidays, cancellations). */
+export function useScheduleRules(): ScheduleRules {
+  const { settings, cancellations } = useStore();
+  return useMemo(
+    () => ({
+      term: settings.term,
+      skipRegularHolidays: settings.skipRegularHolidays,
+      skipSpecialHolidays: settings.skipSpecialHolidays,
+      cancellations,
+    }),
+    [settings.term, settings.skipRegularHolidays, settings.skipSpecialHolidays, cancellations]
+  );
 }
 
 /**
@@ -602,5 +971,9 @@ export function useDatedNotes() {
     updateNote: (note: DatedNote, patch: Partial<Pick<DatedNote, "text" | "date" | "endDate">>) =>
       s.updateItem(note.canvasId, note.id, patch),
     removeNote: (note: DatedNote) => s.removeItem(note.canvasId, note.id),
+    restoreNote: (note: DatedNote) => {
+      const { canvasId, ...item } = note;
+      s.restoreItem(canvasId, item as CanvasItem);
+    },
   };
 }

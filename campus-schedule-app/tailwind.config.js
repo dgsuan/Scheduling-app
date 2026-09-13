@@ -48,10 +48,13 @@ module.exports = {
         warning: "hsl(var(--warning))",
         success: "hsl(var(--success))",
       },
+      // All follow --radius, so the "Corners" appearance setting reaches everything.
       borderRadius: {
+        "2xl": "calc(var(--radius) + 8px)",
+        xl: "calc(var(--radius) + 4px)",
         lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        md: "max(calc(var(--radius) - 2px), 2px)",
+        sm: "max(calc(var(--radius) - 4px), 2px)",
       },
       borderWidth: {
         hairline: hairlineWidth(),

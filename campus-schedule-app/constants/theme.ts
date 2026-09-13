@@ -1,11 +1,12 @@
-import { hslToHex } from "@/lib/color";
+import { contrastRatio, hexToHsl, hslToHex, normalizeHex } from "@/lib/color";
 import type { TimeOfDay } from "@/lib/timeOfDay";
 
 // The app's color system. One identity — warm stone neutrals, a deep teal
 // primary, ochre for "soon", brick for "late" — whose temperature drifts
-// with the time of day. Everything else (Tailwind classes, StyleSheet
-// palettes) is derived from buildTheme(), so components never care which
-// period it is.
+// with the time of day. The user's Appearance settings (preset, accent,
+// background, font, size, roundness) are layered on top here, so every
+// component — Tailwind classes and StyleSheet palettes alike — just reads
+// the resulting tokens.
 
 // Theme-independent colors (course labels, sticky notes, holidays).
 export const colors = {
@@ -69,9 +70,119 @@ export type Palette = {
   inputBg: string;
 };
 
-// --- Tokens --------------------------------------------------------------
+// --- Appearance (user settings) --------------------------------------------
+
+export type ThemeMode = "system" | "light" | "dark";
+export type PresetId = "campus" | "ink" | "moss" | "plum" | "ember";
+export type FontId = "figtree" | "inter" | "atkinson" | "sourceSerif" | "system";
+export type RadiusId = "sharp" | "default" | "round";
+
+export type Appearance = {
+  preset: PresetId;
+  mode: ThemeMode;
+  /** Custom primary color (hex), overriding the preset's. */
+  accent: string | null;
+  /** Custom background (hex). Its lightness decides light vs dark. */
+  background: string | null;
+  font: FontId;
+  serifHeadings: boolean;
+  /** Interface size multiplier (web). */
+  scale: number;
+  radius: RadiusId;
+  /** Let the palette drift with the time of day. */
+  atmosphere: boolean;
+};
+
+export const APPEARANCE_KEY = "campus-schedule:appearance:v1";
+/** Derived CSS applied by index.html before the bundle loads (not user data). */
+export const THEME_SNAPSHOT_KEY = "campus-schedule-cache:theme";
+
+export const DEFAULT_APPEARANCE: Appearance = {
+  preset: "campus",
+  mode: "system",
+  accent: null,
+  background: null,
+  font: "figtree",
+  serifHeadings: true,
+  scale: 1,
+  radius: "default",
+  atmosphere: true,
+};
 
 type HSL = readonly [number, number, number];
+
+export const PRESETS: Record<
+  PresetId,
+  { label: string; light: HSL; dark: HSL; neutralHueShift: number; neutralSat: number }
+> = {
+  campus: { label: "Campus", light: [172, 48, 30], dark: [168, 42, 52], neutralHueShift: 0, neutralSat: 1 },
+  ink: { label: "Ink", light: [217, 58, 42], dark: [214, 78, 70], neutralHueShift: 185, neutralSat: 0.9 },
+  moss: { label: "Moss", light: [100, 30, 32], dark: [95, 32, 60], neutralHueShift: 25, neutralSat: 1.1 },
+  plum: { label: "Plum", light: [320, 34, 38], dark: [318, 38, 70], neutralHueShift: -65, neutralSat: 0.8 },
+  ember: { label: "Ember", light: [14, 62, 43], dark: [16, 70, 64], neutralHueShift: -10, neutralSat: 1 },
+};
+
+export const FONTS: Record<FontId, { label: string; stack: string; google?: string }> = {
+  figtree: {
+    label: "Figtree",
+    stack: '"Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+    google: "Figtree:wght@400..700",
+  },
+  inter: {
+    label: "Inter",
+    stack: '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+    google: "Inter:wght@400..700",
+  },
+  atkinson: {
+    label: "Atkinson Hyperlegible",
+    stack: '"Atkinson Hyperlegible", ui-sans-serif, system-ui, sans-serif',
+    google: "Atkinson+Hyperlegible:wght@400;700",
+  },
+  sourceSerif: {
+    label: "Source Serif",
+    stack: '"Source Serif 4", ui-serif, Georgia, "Times New Roman", serif',
+    google: "Source+Serif+4:opsz,wght@8..60,400..700",
+  },
+  system: {
+    label: "System",
+    stack: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
+  },
+};
+
+export const DISPLAY_SERIF = {
+  stack: '"Fraunces", ui-serif, Georgia, "Times New Roman", serif',
+  google: "Fraunces:opsz,wght@9..144,400..650",
+};
+
+export const UI_SCALES = [0.9, 1, 1.1, 1.25] as const;
+
+export const RADII: Record<RadiusId, { label: string; value: string }> = {
+  sharp: { label: "Sharp", value: "0.25rem" },
+  default: { label: "Soft", value: "0.625rem" },
+  round: { label: "Round", value: "1rem" },
+};
+
+/** Coerce anything (old saves, restored backups) into a valid Appearance. */
+export function normalizeAppearance(raw: unknown): Appearance {
+  const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
+    allowed.includes(v as T) ? (v as T) : fallback;
+  const hex = (v: unknown) => (typeof v === "string" ? normalizeHex(v) : null);
+  const scale = typeof a.scale === "number" && (UI_SCALES as readonly number[]).includes(a.scale) ? a.scale : 1;
+  return {
+    preset: pick(a.preset, Object.keys(PRESETS) as PresetId[], DEFAULT_APPEARANCE.preset),
+    mode: pick(a.mode, ["system", "light", "dark"] as const, DEFAULT_APPEARANCE.mode),
+    accent: hex(a.accent),
+    background: hex(a.background),
+    font: pick(a.font, Object.keys(FONTS) as FontId[], DEFAULT_APPEARANCE.font),
+    serifHeadings: typeof a.serifHeadings === "boolean" ? a.serifHeadings : DEFAULT_APPEARANCE.serifHeadings,
+    scale,
+    radius: pick(a.radius, Object.keys(RADII) as RadiusId[], DEFAULT_APPEARANCE.radius),
+    atmosphere: typeof a.atmosphere === "boolean" ? a.atmosphere : DEFAULT_APPEARANCE.atmosphere,
+  };
+}
+
+// --- Tokens --------------------------------------------------------------
 
 type Core = {
   background: HSL;
@@ -224,7 +335,6 @@ const SHIFTS: Record<ThemeScheme, Record<TimeOfDay, Partial<Core>>> = {
       input: [228, 11, 19],
       foreground: [40, 12, 82],
       mutedForeground: [228, 6, 54],
-      primary: [168, 32, 46],
       dot: [228, 10, 18],
       wash: [238, 45, 26],
       washOpacity: 0.35,
@@ -232,21 +342,111 @@ const SHIFTS: Record<ThemeScheme, Record<TimeOfDay, Partial<Core>>> = {
   },
 };
 
-const css = ([h, s, l]: HSL) => `${h} ${s}% ${l}%`;
-const hex = ([h, s, l]: HSL) => hslToHex(h, s, l);
+const NEUTRAL_KEYS = [
+  "background",
+  "foreground",
+  "card",
+  "popover",
+  "secondary",
+  "accent",
+  "mutedForeground",
+  "border",
+  "input",
+  "dot",
+] as const;
+
+const clamp = (v: number, lo = 0, hi = 100) => Math.min(hi, Math.max(lo, v));
+const css = ([h, s, l]: HSL) => `${Math.round(h)} ${Math.round(s * 10) / 10}% ${Math.round(l * 10) / 10}%`;
+const hex = ([h, s, l]: HSL) => hslToHex(h, clamp(s), clamp(l));
+
+/** Readable text color to sit on top of `bg`. */
+function foregroundOn(bg: HSL): HSL {
+  const onLight: HSL = [bg[0], 30, 10];
+  const onDark: HSL = [40, 30, 98];
+  return contrastRatio(hex(bg), hex(onDark)) >= contrastRatio(hex(bg), hex(onLight)) ? onDark : onLight;
+}
+
+/** Neutrals built around a user-chosen background color. */
+function neutralsFrom([h, s, l]: HSL, dark: boolean): Pick<Core, (typeof NEUTRAL_KEYS)[number]> {
+  const sat = Math.min(s, 40);
+  const at = (d: number): HSL => [h, sat, clamp(l + d)];
+  return dark
+    ? {
+        background: [h, sat, l],
+        card: at(3),
+        popover: at(4),
+        secondary: at(6),
+        accent: at(8),
+        border: at(10),
+        input: at(12),
+        dot: at(13),
+        foreground: [h, Math.min(sat, 14), 92],
+        mutedForeground: [h, 6, 64],
+      }
+    : {
+        background: [h, sat, l],
+        card: at(l > 97 ? 1 : 1.5),
+        popover: at(l > 97 ? 1 : 1.5),
+        secondary: at(-4.5),
+        accent: at(-6.5),
+        border: at(-10),
+        input: at(-12),
+        dot: at(-17),
+        foreground: [h, Math.min(sat, 14), 12],
+        mutedForeground: [h, 7, 38],
+      };
+}
+
+export type ContrastIssue = { label: string; ratio: number; min: number };
 
 export type BuiltTheme = {
-  /** CSS custom properties (HSL triplets) consumed by tailwind.config.js. */
+  /** The scheme actually in effect (a custom background decides it). */
+  scheme: ThemeScheme;
+  /** CSS custom properties consumed by tailwind.config.js. */
   tokens: Record<string, string>;
   /** Hex palette for StyleSheet-based code. */
   palette: Palette;
   wash: { color: string; opacity: number };
+  fontSans: string;
+  fontDisplay: string;
+  scale: number;
+  contrastIssues: ContrastIssue[];
 };
 
-export function buildTheme(scheme: ThemeScheme, tod: TimeOfDay): BuiltTheme {
-  const c: Core = { ...BASE[scheme], ...SHIFTS[scheme][tod] };
+export function buildTheme(
+  requested: ThemeScheme,
+  tod: TimeOfDay,
+  appearance: Appearance = DEFAULT_APPEARANCE
+): BuiltTheme {
+  const period: TimeOfDay = appearance.atmosphere ? tod : "afternoon";
+  const preset = PRESETS[appearance.preset];
+
+  let scheme = requested;
+  let c: Core;
+  if (appearance.background) {
+    const bg = hexToHsl(appearance.background);
+    scheme = bg[2] < 50 ? "dark" : "light";
+    const base = { ...BASE[scheme], ...SHIFTS[scheme][period] };
+    c = { ...base, ...neutralsFrom(bg, scheme === "dark") };
+  } else {
+    c = { ...BASE[scheme], ...SHIFTS[scheme][period] };
+    if (preset.neutralHueShift || preset.neutralSat !== 1) {
+      for (const k of NEUTRAL_KEYS) {
+        const [h, s, l] = c[k];
+        c[k] = [(h + preset.neutralHueShift + 360) % 360, clamp(s * preset.neutralSat), l];
+      }
+    }
+  }
+
+  let primary: HSL = scheme === "dark" ? preset.dark : preset.light;
+  // Dim the accent a touch late at night in dark mode, like the rest of the palette.
+  if (scheme === "dark" && period === "night") primary = [primary[0], primary[1] * 0.75, primary[2] - 6];
+  if (appearance.accent) primary = hexToHsl(appearance.accent);
+  c.primary = primary;
+  c.primaryForeground = foregroundOn(primary);
+
   const white: HSL = [0, 0, 100];
-  const tokens = {
+  const tokens: Record<string, string> = {
     "--background": css(c.background),
     "--foreground": css(c.foreground),
     "--card": css(c.card),
@@ -268,6 +468,7 @@ export function buildTheme(scheme: ThemeScheme, tod: TimeOfDay): BuiltTheme {
     "--ring": css(c.primary),
     "--warning": css(c.warning),
     "--success": css(c.success),
+    "--radius": RADII[appearance.radius].value,
   };
   const palette: Palette = {
     scheme,
@@ -287,5 +488,30 @@ export function buildTheme(scheme: ThemeScheme, tod: TimeOfDay): BuiltTheme {
     dot: hex(c.dot),
     inputBg: hex(c.card),
   };
-  return { tokens, palette, wash: { color: hex(c.wash), opacity: c.washOpacity } };
+
+  const font = FONTS[appearance.font];
+  return {
+    scheme,
+    tokens,
+    palette,
+    wash: { color: hex(c.wash), opacity: c.washOpacity },
+    fontSans: font.stack,
+    fontDisplay: appearance.serifHeadings ? DISPLAY_SERIF.stack : font.stack,
+    scale: appearance.scale,
+    contrastIssues: contrastIssues(palette),
+  };
+}
+
+/** Pairs that must stay readable, checked against WCAG thresholds. */
+export function contrastIssues(p: Palette): ContrastIssue[] {
+  const checks: [string, string, string, number][] = [
+    ["Text on background", p.text, p.bg, 4.5],
+    ["Text on cards", p.text, p.card, 4.5],
+    ["Secondary text", p.muted, p.bg, 3],
+    ["Accent on background", p.accent, p.bg, 3],
+    ["Button text on accent", p.onAccent, p.accent, 4.5],
+  ];
+  return checks
+    .map(([label, a, b, min]) => ({ label, ratio: contrastRatio(a, b), min }))
+    .filter((c) => c.ratio < c.min);
 }

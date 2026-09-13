@@ -1,22 +1,27 @@
-import { ChevronRight, Flag, Pencil, Trash2 } from "lucide-react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import { ChevronRight, Flag, ListTree, Pencil, Repeat, Timer, Trash2 } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 
 import { ChoicePopover, type Choice } from "@/components/ChoicePopover";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DueDateButton } from "@/components/DueDateButton";
 import { ItemEditorDialog, type EditorTarget } from "@/components/ItemEditorDialog";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { TaskCheckbox } from "@/components/TaskCheckbox";
+import { RecurringDeleteDialog } from "@/components/tasks/RecurringDeleteDialog";
+import { SubtaskList } from "@/components/tasks/SubtaskList";
 import { TimePickerField } from "@/components/TimePickerField";
+import { useToast } from "@/components/Toaster";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/text";
+import { formatSpent, useFocus } from "@/context/focus";
 import { useTheme } from "@/context/theme";
-import { useCourses, useTasks, type Course, type Priority, type Task } from "@/context/store";
-import { addDaysIso } from "@/lib/calendar";
+import { useCourses, useSettings, useTasks, type Course, type Priority, type Task, type TaskRepeat } from "@/context/store";
+import { addDaysIso, formatShortDate } from "@/lib/calendar";
+import { describeRepeat, nextRepeatDate, repeatStop, weeklyOn } from "@/lib/recurrence";
 import { display12h } from "@/lib/schedule";
 import { formatDue, isDueSoon, isOverdue, isoDate, sortTasks, todayIso } from "@/lib/tasks";
 import { useBreakpoint } from "@/lib/useBreakpoint";
@@ -40,12 +45,15 @@ const SECTIONS: { key: SectionKey; title: string }[] = [
 ];
 
 const COMPLETE_DELAY_MS = 420;
+const UNDO_MS = 6000;
 
 const PRIORITY_CHOICES: Choice<Priority>[] = [
   { value: "high", label: "High priority", iconClassName: "text-destructive" },
   { value: "medium", label: "Medium priority", iconClassName: "text-warning" },
   { value: "low", label: "Low priority", iconClassName: "text-muted-foreground" },
 ];
+
+type RepeatChoice = "none" | "daily" | "weekdays" | "weekly";
 
 function sectionOf(task: Task, now: Date): SectionKey {
   if (task.done) return "done";
@@ -69,23 +77,28 @@ function TaskRow({
   section,
   course,
   now,
+  focusing,
   onToggle,
   onRename,
   onEdit,
   onDelete,
+  onFocus,
 }: {
   task: Task;
   section: SectionKey;
   course?: Course;
   now: Date;
+  focusing: boolean;
   onToggle: (done: boolean) => void;
   onRename: (title: string) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onFocus: () => void;
 }) {
   const t = useTheme();
   // Show the tick (and strike-through) before the row moves to Completed.
   const [completing, setCompleting] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -94,7 +107,10 @@ function TaskRow({
     clearTimeout(timer.current);
     if (value && !task.done) {
       setCompleting(true);
-      timer.current = setTimeout(() => onToggle(true), COMPLETE_DELAY_MS);
+      timer.current = setTimeout(() => {
+        setCompleting(false);
+        onToggle(true);
+      }, COMPLETE_DELAY_MS);
     } else {
       setCompleting(false);
       onToggle(value);
@@ -103,6 +119,8 @@ function TaskRow({
 
   const soon = section === "today" && isDueSoon(task, now);
   const label = dueLabel(task, section, now);
+  const subtasks = task.subtasks ?? [];
+  const stepsDone = subtasks.filter((s) => s.done).length;
 
   return (
     <Animated.View
@@ -110,7 +128,12 @@ function TaskRow({
       exiting={FadeOut.duration(160)}
       layout={LinearTransition.springify().damping(22).stiffness(240)}
     >
-      <View className="group flex-row items-start gap-3 rounded-lg px-2 py-2.5 web:transition-colors web:duration-150 web:hover:bg-accent/50">
+      <View
+        className={cn(
+          "group flex-row items-start gap-3 rounded-lg px-2 py-2.5 web:transition-colors web:duration-150 web:hover:bg-accent/50",
+          focusing && "bg-primary/5"
+        )}
+      >
         <View className="pt-0.5">
           <TaskCheckbox checked={checked} onCheckedChange={toggle} label={task.title || "Task"} />
         </View>
@@ -126,34 +149,80 @@ function TaskRow({
               checked && "text-muted-foreground line-through"
             )}
           />
-          {label || course || task.priority === "high" ? (
-            <View className="flex-row flex-wrap items-center gap-x-3 gap-y-0.5">
-              {label ? (
-                <Text
-                  className={cn(
-                    "text-[13px] tabular-nums",
-                    section === "overdue" ? "text-destructive" : soon ? "text-warning font-medium" : "text-muted-foreground"
-                  )}
-                >
-                  {label}
+          <View className="flex-row flex-wrap items-center gap-x-3 gap-y-0.5">
+            {label ? (
+              <Text
+                className={cn(
+                  "text-[13px] tabular-nums",
+                  section === "overdue" ? "text-destructive" : soon ? "text-warning font-medium" : "text-muted-foreground"
+                )}
+              >
+                {label}
+              </Text>
+            ) : null}
+            {task.repeat && !task.done ? (
+              <View className="flex-row items-center gap-1" accessibilityLabel={describeRepeat(task.repeat)}>
+                <Icon as={Repeat} size={12} className="text-muted-foreground" />
+                <Text className="text-muted-foreground text-[13px]">{describeRepeat(task.repeat)}</Text>
+              </View>
+            ) : null}
+            {course ? (
+              <View className="flex-row items-center gap-1.5">
+                <View className="size-1.5 rounded-full" style={{ backgroundColor: course.color }} />
+                <Text className="text-muted-foreground text-[13px]">{course.code}</Text>
+              </View>
+            ) : null}
+            {task.priority === "high" && !task.done ? (
+              <View className="flex-row items-center gap-1">
+                <Icon as={Flag} size={12} className="text-destructive" />
+                <Text className="text-muted-foreground text-[13px]">High</Text>
+              </View>
+            ) : null}
+            {subtasks.length ? (
+              <Pressable
+                onPress={() => setExpanded((v) => !v)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded }}
+                accessibilityLabel={`${stepsDone} of ${subtasks.length} steps done`}
+                className="flex-row items-center gap-1 rounded web:hover:opacity-80"
+              >
+                <View style={{ transform: [{ rotate: expanded ? "90deg" : "0deg" }] }}>
+                  <Icon as={ChevronRight} size={12} className="text-muted-foreground" />
+                </View>
+                <Text className="text-muted-foreground text-[13px] tabular-nums">
+                  {stepsDone}/{subtasks.length} steps
                 </Text>
-              ) : null}
-              {course ? (
-                <View className="flex-row items-center gap-1.5">
-                  <View className="size-1.5 rounded-full" style={{ backgroundColor: course.color }} />
-                  <Text className="text-muted-foreground text-[13px]">{course.code}</Text>
-                </View>
-              ) : null}
-              {task.priority === "high" && !task.done ? (
-                <View className="flex-row items-center gap-1">
-                  <Icon as={Flag} size={12} className="text-destructive" />
-                  <Text className="text-muted-foreground text-[13px]">High</Text>
-                </View>
-              ) : null}
-            </View>
-          ) : null}
+              </Pressable>
+            ) : null}
+            {task.timeSpentSec ? (
+              <View className="flex-row items-center gap-1">
+                <Icon as={Timer} size={12} className="text-muted-foreground" />
+                <Text className="text-muted-foreground text-[13px] tabular-nums">{formatSpent(task.timeSpentSec)}</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
         <View className="flex-row items-center web:opacity-0 web:transition-opacity web:group-hover:opacity-100 web:group-focus-within:opacity-100">
+          {!task.done ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onPress={onFocus}
+              accessibilityLabel={focusing ? `Focusing on ${task.title || "task"}` : `Start focus timer for ${task.title || "task"}`}
+            >
+              <Icon as={Timer} size={15} className={focusing ? "text-primary" : "text-muted-foreground"} />
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onPress={() => setExpanded((v) => !v)}
+            accessibilityLabel={`${expanded ? "Hide" : "Show"} steps for ${task.title || "task"}`}
+          >
+            <Icon as={ListTree} size={15} className="text-muted-foreground" />
+          </Button>
           <Button variant="ghost" size="icon" className="h-8 w-8" onPress={onEdit} accessibilityLabel={`Edit ${task.title || "task"}`}>
             <Icon as={Pencil} size={15} className="text-muted-foreground" />
           </Button>
@@ -162,13 +231,17 @@ function TaskRow({
           </Button>
         </View>
       </View>
+      {expanded ? <SubtaskList task={task} /> : null}
     </Animated.View>
   );
 }
 
 export default function TasksScreen() {
-  const { tasks, addTask, updateTask, removeTask, clearCompletedTasks } = useTasks();
+  const { tasks, addTask, updateTask, removeTask, restoreTask, skipTaskOccurrence, clearCompletedTasks } = useTasks();
   const { courses } = useCourses();
+  const { settings } = useSettings();
+  const focus = useFocus();
+  const { toast } = useToast();
   const t = useTheme();
   const { desktop } = useBreakpoint();
   const now = useNow();
@@ -178,15 +251,70 @@ export default function TasksScreen() {
   const [dueTime, setDueTime] = useState<string | undefined>(undefined);
   const [priority, setPriority] = useState<Priority>("medium");
   const [courseId, setCourseId] = useState<string | undefined>(undefined);
+  const [repeatChoice, setRepeatChoice] = useState<RepeatChoice>("none");
   const [showDone, setShowDone] = useState(false);
   const [editing, setEditing] = useState<EditorTarget | null>(null);
-  const [deleting, setDeleting] = useState<Task | null>(null);
+  const [deletingSeries, setDeletingSeries] = useState<Task | null>(null);
+  const composer = useRef<TextInput>(null);
+
+  // Deep links: ?new=1 focuses the composer, ?open=<id> opens a task.
+  const params = useLocalSearchParams<{ new?: string; open?: string }>();
+  useEffect(() => {
+    if (params.new) {
+      setTimeout(() => composer.current?.focus(), 50);
+      router.setParams({ new: undefined });
+    }
+    if (params.open) {
+      const task = tasks.find((x) => x.id === params.open);
+      if (task) {
+        setEditing({ mode: "edit", kind: "task", task });
+        if (task.done) setShowDone(true);
+      }
+      router.setParams({ open: undefined });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.new, params.open]);
+
+  const repeatFor = (choice: RepeatChoice, iso?: string): TaskRepeat | undefined =>
+    choice === "none" ? undefined : choice === "weekly" ? weeklyOn(iso) : { freq: choice };
 
   const submit = () => {
     const text = title.trim();
     if (!text) return;
-    addTask({ title: text, priority, due, dueTime: due ? dueTime : undefined, done: false, courseId });
+    addTask({
+      title: text,
+      priority,
+      due,
+      dueTime: due ? dueTime : undefined,
+      done: false,
+      courseId,
+      repeat: due ? repeatFor(repeatChoice, due) : undefined,
+    });
     setTitle("");
+  };
+
+  const complete = (task: Task, done: boolean) => {
+    updateTask(task.id, { done });
+    if (done && focus.session?.taskId === task.id) focus.stop();
+    if (done && task.repeat && task.due) {
+      const next = nextRepeatDate(task.repeat, task.due, repeatStop(task, settings.term?.end));
+      if (next) toast({ message: "Nice — next one is ready", description: `${task.title || "Task"} · due ${formatShortDate(next)}` });
+    }
+  };
+
+  const remove = (task: Task) => {
+    if (task.repeat && !task.done) {
+      setDeletingSeries(task);
+      return;
+    }
+    removeTask(task.id);
+    toast({
+      message: "Task deleted",
+      description: task.title || undefined,
+      actionLabel: "Undo",
+      onAction: () => restoreTask(task),
+      duration: UNDO_MS,
+    });
   };
 
   const grouped = useMemo(() => {
@@ -206,6 +334,12 @@ export default function TasksScreen() {
   const courseChoices: Choice<string | undefined>[] = [
     { value: undefined, label: "No course" },
     ...courses.map((c) => ({ value: c.id as string | undefined, label: c.code, color: c.color })),
+  ];
+  const repeatChoices: Choice<RepeatChoice>[] = [
+    { value: "none", label: "Doesn't repeat" },
+    { value: "daily", label: "Every day" },
+    { value: "weekdays", label: "Every weekday" },
+    { value: "weekly", label: due ? describeRepeat(weeklyOn(due)) : "Every week" },
   ];
 
   return (
@@ -229,6 +363,7 @@ export default function TasksScreen() {
           <View className="flex-row items-center gap-3 px-4">
             <View className="border-muted-foreground/40 size-5 rounded-md border border-dashed" />
             <TextInput
+              ref={composer}
               value={title}
               onChangeText={setTitle}
               onSubmitEditing={submit}
@@ -244,6 +379,9 @@ export default function TasksScreen() {
             <DueDateButton value={due} onChange={setDue} />
             {due ? (
               <TimePickerField value={dueTime} onChange={setDueTime} placeholder="Time" variant="ghost" accessibilityLabel="Due time" />
+            ) : null}
+            {due ? (
+              <ChoicePopover value={repeatChoice} options={repeatChoices} onChange={setRepeatChoice} icon={Repeat} accessibilityLabel="Repeat" />
             ) : null}
             <ChoicePopover value={priority} options={PRIORITY_CHOICES} onChange={setPriority} icon={Flag} accessibilityLabel="Priority" />
             {courses.length ? (
@@ -307,10 +445,12 @@ export default function TasksScreen() {
                           section={key}
                           course={task.courseId ? courseById[task.courseId] : undefined}
                           now={now}
-                          onToggle={(done) => updateTask(task.id, { done })}
+                          focusing={focus.session?.taskId === task.id}
+                          onToggle={(done) => complete(task, done)}
                           onRename={(v) => updateTask(task.id, { title: v })}
                           onEdit={() => setEditing({ mode: "edit", kind: "task", task })}
-                          onDelete={() => setDeleting(task)}
+                          onDelete={() => remove(task)}
+                          onFocus={() => (focus.session?.taskId === task.id ? focus.stop() : focus.start(task.id))}
                         />
                       ))
                     : null}
@@ -322,14 +462,18 @@ export default function TasksScreen() {
       </ScrollView>
 
       <ItemEditorDialog target={editing} onClose={() => setEditing(null)} />
-      <ConfirmDialog
-        open={!!deleting}
-        onOpenChange={(o) => !o && setDeleting(null)}
-        title="Delete task?"
-        description={`"${deleting?.title || "This task"}" will be removed. This can't be undone.`}
-        onConfirm={() => {
-          if (deleting) removeTask(deleting.id);
-          setDeleting(null);
+      <RecurringDeleteDialog
+        task={deletingSeries}
+        onCancel={() => setDeletingSeries(null)}
+        onSkipOne={(task) => {
+          skipTaskOccurrence(task.id);
+          setDeletingSeries(null);
+          toast({ message: "Skipped this one", description: `${task.title || "Task"} — the series continues`, actionLabel: "Undo", onAction: () => updateTask(task.id, { due: task.due, start: task.start, subtasks: task.subtasks }), duration: UNDO_MS });
+        }}
+        onDeleteSeries={(task) => {
+          removeTask(task.id);
+          setDeletingSeries(null);
+          toast({ message: "Repeating task deleted", description: task.title || undefined, actionLabel: "Undo", onAction: () => restoreTask(task), duration: UNDO_MS });
         }}
       />
     </View>

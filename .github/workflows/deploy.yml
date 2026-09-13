@@ -33,8 +33,9 @@ jobs:
 
       - run: npm ci
 
+      # Exports, then injects the PWA manifest + pre-paint theme into index.html.
       - name: Export web build
-        run: npx expo export -p web
+        run: npm run export:web
 
       # SPA fallback: GitHub Pages serves 404.html for unknown paths, so a
       # hard refresh on a client-side route still loads the app.

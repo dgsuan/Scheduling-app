@@ -1,4 +1,4 @@
-import { CalendarClock, ListTodo, StickyNote } from "lucide-react-native";
+import { CalendarClock, ListTodo, Repeat, StickyNote } from "lucide-react-native";
 import { useState } from "react";
 import { ScrollView, View } from "react-native";
 
@@ -27,9 +27,39 @@ import {
   type DatedNote,
   type Priority,
   type Task,
+  type TaskRepeat,
 } from "@/context/store";
 import { formatShortDate } from "@/lib/calendar";
+import { WEEKDAY_LONG } from "@/lib/schedule";
 import { PRIORITY_LABEL } from "@/lib/tasks";
+import { weekdayOf } from "@/lib/dates";
+import { ChoicePopover, type Choice } from "@/components/ChoicePopover";
+import { useToast } from "@/components/Toaster";
+
+type RepeatChoice = "none" | "daily" | "weekdays" | "weekly";
+
+const REPEAT_OPTIONS = (dueIso?: string): Choice<RepeatChoice>[] => [
+  { value: "none", label: "Doesn't repeat" },
+  { value: "daily", label: "Every day" },
+  { value: "weekdays", label: "Every weekday" },
+  { value: "weekly", label: dueIso ? `Every ${WEEKDAY_LONG[weekdayOf(dueIso)]}` : "Every week" },
+];
+
+function repeatChoice(r?: TaskRepeat): RepeatChoice {
+  return r ? r.freq : "none";
+}
+
+function repeatFromChoice(choice: RepeatChoice, dueIso: string | undefined, until?: string): TaskRepeat | undefined {
+  if (choice === "none") return undefined;
+  if (choice === "weekly") return { freq: "weekly", weekdays: [dueIso ? weekdayOf(dueIso) : (new Date().getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6)], until };
+  return { freq: choice, until };
+}
+
+/** Weekly repeats follow the due date's weekday if it changed. */
+function anchorRepeat(r: TaskRepeat | undefined, dueIso: string): TaskRepeat | undefined {
+  if (!r) return undefined;
+  return r.freq === "weekly" ? { ...r, weekdays: r.weekdays?.length === 1 ? [weekdayOf(dueIso)] : r.weekdays } : r;
+}
 import { cn } from "@/lib/utils";
 
 // One compact dialog for creating or editing a task, event or dated note.
@@ -39,7 +69,7 @@ import { cn } from "@/lib/utils";
 export type ItemType = "task" | "event" | "note";
 
 export type EditorTarget =
-  | { mode: "create"; start: string; end: string; type?: ItemType }
+  | { mode: "create"; start: string; end: string; type?: ItemType; /** Pre-fill a timed event from this hour. */ startTime?: string }
   | { mode: "edit"; kind: "task"; task: Task }
   | { mode: "edit"; kind: "event"; event: CalendarEvent }
   | { mode: "edit"; kind: "note"; note: DatedNote };
@@ -56,7 +86,7 @@ const PRIORITY_OPTIONS = (["low", "medium", "high"] as Priority[]).map((p) => ({
 }));
 
 function targetKey(t: EditorTarget): string {
-  if (t.mode === "create") return `new-${t.start}-${t.end}-${t.type ?? ""}`;
+  if (t.mode === "create") return `new-${t.start}-${t.end}-${t.type ?? ""}-${t.startTime ?? ""}`;
   return t.kind === "task" ? t.task.id : t.kind === "event" ? t.event.id : t.note.id;
 }
 
@@ -83,9 +113,10 @@ function FieldLabel({ children }: { children: string }) {
 }
 
 function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => void }) {
-  const { addTask, updateTask, removeTask } = useTasks();
-  const { addEvent, updateEvent, removeEvent } = useEvents();
-  const { addNote, updateNote, removeNote } = useDatedNotes();
+  const { addTask, updateTask, removeTask, restoreTask } = useTasks();
+  const { addEvent, updateEvent, removeEvent, restoreEvent } = useEvents();
+  const { addNote, updateNote, removeNote, restoreNote } = useDatedNotes();
+  const { toast } = useToast();
   const { courses } = useCourses();
 
   const init = initialState(target);
@@ -98,6 +129,7 @@ function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => vo
   const [startTime, setStartTime] = useState<string | undefined>(init.startTime);
   const [endTime, setEndTime] = useState<string | undefined>(init.endTime);
   const [priority, setPriority] = useState<Priority>(init.priority);
+  const [repeat, setRepeat] = useState<TaskRepeat | undefined>(init.repeat);
   const [courseId, setCourseId] = useState<string | undefined>(init.courseId);
   const [error, setError] = useState<string | null>(null);
 
@@ -135,6 +167,8 @@ function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => vo
         dueTime: end ?? start ? dueTime : undefined,
         priority,
         courseId,
+        // A repeat needs a date to anchor on.
+        repeat: end ?? start ? anchorRepeat(repeat, (end ?? start)!) : undefined,
       };
       if (target.mode === "edit" && target.kind === "task") updateTask(target.task.id, patch);
       else addTask({ ...patch, done: false });
@@ -162,11 +196,22 @@ function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => vo
     onDone();
   };
 
+  // Delete right away, with a short-lived Undo instead of a confirmation.
   const remove = () => {
     if (target.mode !== "edit") return;
-    if (target.kind === "task") removeTask(target.task.id);
-    else if (target.kind === "event") removeEvent(target.event.id);
-    else removeNote(target.note);
+    if (target.kind === "task") {
+      const task = target.task;
+      removeTask(task.id);
+      toast({ message: task.repeat ? "Repeating task deleted" : "Task deleted", description: task.title || undefined, actionLabel: "Undo", onAction: () => restoreTask(task), duration: 6000 });
+    } else if (target.kind === "event") {
+      const event = target.event;
+      removeEvent(event.id);
+      toast({ message: "Event deleted", description: event.title, actionLabel: "Undo", onAction: () => restoreEvent(event), duration: 6000 });
+    } else {
+      const note = target.note;
+      removeNote(note);
+      toast({ message: "Note deleted", description: note.text.trim() || undefined, actionLabel: "Undo", onAction: () => restoreNote(note), duration: 6000 });
+    }
     onDone();
   };
 
@@ -182,6 +227,11 @@ function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => vo
       <DialogHeader>
         <DialogTitle>{creating ? "New item" : `Edit ${noun}`}</DialogTitle>
         <DialogDescription>{rangeLabel}</DialogDescription>
+        {!creating && type === "task" && init.repeat ? (
+          <Text className="text-muted-foreground text-xs">
+            This task repeats — changes here apply to the whole series.
+          </Text>
+        ) : null}
       </DialogHeader>
 
       <Input
@@ -229,6 +279,33 @@ function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => vo
             <View className="flex-row">
               <TimePickerField value={dueTime} onChange={setDueTime} placeholder="End of day" accessibilityLabel="Deadline time" />
             </View>
+          </View>
+          <View className="gap-1.5">
+            <FieldLabel>Repeat</FieldLabel>
+            <View className="flex-row flex-wrap items-center gap-2">
+              <ChoicePopover<RepeatChoice>
+                value={repeatChoice(repeat)}
+                onChange={(choice) => setRepeat(repeatFromChoice(choice, end ?? start, repeat?.until))}
+                options={REPEAT_OPTIONS(end ?? start)}
+                icon={Repeat}
+                accessibilityLabel="Repeat"
+                triggerClassName="border-border border"
+              />
+              {repeat ? (
+                <>
+                  <Text className="text-muted-foreground text-xs">until</Text>
+                  <DatePickerField
+                    value={repeat.until}
+                    onChange={(until) => setRepeat({ ...repeat, until })}
+                    placeholder={courseId ? "Term end" : "No end"}
+                    accessibilityLabel="Repeat until"
+                  />
+                </>
+              ) : null}
+            </View>
+            {repeat && courseId ? (
+              <Text className="text-muted-foreground text-xs">Course tasks stop repeating when the term ends.</Text>
+            ) : null}
           </View>
           <View className="gap-1.5">
             <FieldLabel>Priority</FieldLabel>
@@ -310,9 +387,18 @@ function initialState(target: EditorTarget) {
     endTime: undefined as string | undefined,
     priority: "medium" as Priority,
     courseId: undefined as string | undefined,
+    repeat: undefined as TaskRepeat | undefined,
   };
-  if (target.mode === "create")
+  if (target.mode === "create") {
+    if (target.startTime) {
+      // A click on the week timeline: a one-hour event from that hour.
+      const [h, m] = target.startTime.split(":").map(Number);
+      const endH = Math.min(23, h + 1);
+      const endTime = `${String(endH).padStart(2, "0")}:${h === 23 ? "59" : String(m).padStart(2, "0")}`;
+      return { ...base, type: "event" as ItemType, start: target.start, end: target.end, allDay: false, startTime: target.startTime, endTime };
+    }
     return { ...base, type: target.type ?? "task", start: target.start, end: target.end };
+  }
   if (target.kind === "task") {
     const t = target.task;
     return {
@@ -323,6 +409,7 @@ function initialState(target: EditorTarget) {
       dueTime: t.dueTime,
       priority: t.priority,
       courseId: t.courseId,
+      repeat: t.repeat,
     };
   }
   if (target.kind === "event") {

@@ -7,6 +7,8 @@ import {
   ListChecks,
   Moon,
   NotebookPen,
+  Search,
+  Settings,
   Sun,
   Sunrise,
   Sunset,
@@ -22,6 +24,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useCommandPalette } from "@/components/CommandPalette";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
 import { ThemeToggle, useTimeOfDay } from "@/context/theme";
@@ -41,6 +44,7 @@ const ICONS: Record<string, LucideIcon> = {
   courses: BookOpen,
   notes: NotebookPen,
   import: Download,
+  settings: Settings,
 };
 
 const PERIOD: Record<TimeOfDay, { label: string; icon: LucideIcon }> = {
@@ -90,6 +94,8 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
   const [layouts, setLayouts] = useState<(LayoutRectangle | undefined)[]>([]);
   const indicator = useIndicator(state.index, layouts);
   const insets = useSafeAreaInsets();
+  const { setOpen } = useCommandPalette();
+  const openPalette = () => setOpen(true);
 
   const items = state.routes.map((route, i) => {
     const { options } = descriptors[route.key];
@@ -147,6 +153,16 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
         <Text className="font-display mb-8 px-3 text-[22px] font-semibold">
           campus<Text className="text-primary font-display text-[22px] font-semibold">.</Text>
         </Text>
+        <Pressable
+          onPress={openPalette}
+          accessibilityRole="button"
+          accessibilityLabel="Search"
+          className="border-border mb-4 flex-row items-center gap-2.5 rounded-lg border px-3 py-2 web:transition-colors web:hover:bg-accent/60"
+        >
+          <Icon as={Search} size={15} className="text-muted-foreground" />
+          <Text className="text-muted-foreground flex-1 text-[13px]">Search</Text>
+          <Text className="text-muted-foreground border-border rounded border px-1 text-[10px]">Ctrl K</Text>
+        </Pressable>
         <View role="tablist" className="gap-0.5">
           {/* Reanimated views ignore className: animate the outer, style the inner. */}
           <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, top: 0 }, indicator]}>

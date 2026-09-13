@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -27,6 +26,10 @@ import {
 } from "@/lib/schedule";
 import { ColorPicker } from "@/components/ColorPicker";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { GradesDialog } from "@/components/grades/GradesDialog";
+import { GwaSummary } from "@/components/grades/GwaSummary";
+import { useGrades } from "@/context/store";
+import { DEFAULT_UNITS, courseStanding, formatGrade } from "@/lib/grades";
 
 const DAY_CHIPS: { value: Weekday; label: string }[] = [
   { value: 1, label: "M" },
@@ -139,6 +142,9 @@ function CourseForm({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [section, setSection] = useState(initial?.section ?? "");
   const [instructor, setInstructor] = useState(initial?.instructor ?? "");
+  const [units, setUnits] = useState(initial?.units != null ? String(initial.units) : "");
+  // Inline errors: Alert.alert does nothing on web.
+  const [formError, setFormError] = useState<string | null>(null);
   const [color, setColor] = useState(initial?.color ?? colors.courseColors[0]);
   const [meetings, setMeetings] = useState<Meeting[]>(
     initial?.meetings.length ? initial.meetings.map((m) => ({ ...m })) : [emptyMeeting()]
@@ -160,8 +166,9 @@ function CourseForm({
   };
 
   const handleSave = () => {
+    setFormError(null);
     if (!code.trim()) {
-      Alert.alert("Course code required", "Enter at least a course code (e.g. CMSC 13).");
+      setFormError("Enter at least a course code (e.g. CMSC 13).");
       return;
     }
     const cleaned: Meeting[] = [];
@@ -169,17 +176,17 @@ function CourseForm({
       const hasAny = m.days.length || m.start || m.end || m.room;
       if (!hasAny) continue; // skip fully-blank rows
       if (!m.days.length) {
-        Alert.alert("Pick a day", "Each meeting time needs at least one day selected.");
+        setFormError("Each meeting time needs at least one day selected.");
         return;
       }
       const s = parseTime(m.start);
       const e = parseTime(m.end);
       if (s == null || e == null) {
-        Alert.alert("Check the time", "Enter a start and end time like 12:43, and pick AM/PM.");
+        setFormError("Enter a start and end time like 12:43, and pick AM/PM.");
         return;
       }
       if (e <= s) {
-        Alert.alert("Check the time", "End time must be after start time.");
+        setFormError("End time must be after start time.");
         return;
       }
       cleaned.push({
@@ -190,6 +197,12 @@ function CourseForm({
       });
     }
 
+    const unitsNum = units.trim() ? Number(units) : undefined;
+    if (unitsNum !== undefined && (!isFinite(unitsNum) || unitsNum <= 0 || unitsNum > 30)) {
+      setFormError("Units should be a number like 3.");
+      return;
+    }
+
     onSubmit({
       code: code.trim(),
       title: title.trim() || undefined,
@@ -197,6 +210,7 @@ function CourseForm({
       instructor: instructor.trim() || undefined,
       color,
       meetings: cleaned,
+      units: unitsNum,
     });
   };
 
@@ -258,6 +272,22 @@ function CourseForm({
                 placeholderTextColor={t.muted}
               />
             </View>
+          </View>
+
+          <View style={styles.row}>
+            <View style={styles.rowItem}>
+              <Text style={styles.fieldLabel}>Units</Text>
+              <TextInput
+                style={styles.input}
+                value={units}
+                onChangeText={setUnits}
+                placeholder="3"
+                placeholderTextColor={t.muted}
+                keyboardType="decimal-pad"
+                accessibilityLabel="Units"
+              />
+            </View>
+            <View style={styles.rowItem} />
           </View>
 
           <ColorPicker value={color} onChange={setColor} label="Label color" />
@@ -323,6 +353,11 @@ function CourseForm({
           ))}
         </ScrollView>
 
+        {formError ? (
+          <Text style={styles.formError} accessibilityRole="alert">
+            {formError}
+          </Text>
+        ) : null}
         <View style={styles.modalActions}>
           <Pressable style={[styles.button, styles.buttonSecondary]} onPress={onCancel}>
             <Text style={styles.buttonSecondaryText}>Cancel</Text>
@@ -340,6 +375,10 @@ function CourseForm({
 
 export default function CoursesScreen() {
   const { courses, addCourse, updateCourse, removeCourse } = useCourses();
+  const { grades } = useGrades();
+  const [gradesFor, setGradesFor] = useState<Course | null>(null);
+  // Keep the open grade book in sync with edits (e.g. units).
+  const gradesCourse = gradesFor ? courses.find((c) => c.id === gradesFor.id) ?? null : null;
   const t = useTheme();
   const styles = useMemo(() => makeStyles(t), [t]);
   const [formOpen, setFormOpen] = useState(false);
@@ -370,6 +409,8 @@ export default function CoursesScreen() {
           subtitle="The classes you're enrolled in. Schedule and Calendar read from this list."
         />
 
+        {sorted.length ? <GwaSummary courses={sorted} grades={grades} /> : null}
+
         {sorted.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>No courses yet.</Text>
@@ -398,7 +439,20 @@ export default function CoursesScreen() {
                   <Text style={styles.courseMeeting}>No meeting times set</Text>
                 )}
 
+                <Text style={styles.gradeLine}>
+                  {(() => {
+                    const st = courseStanding(grades[course.id]);
+                    const units = `${course.units ?? DEFAULT_UNITS} units`;
+                    if (st.isFinal) return `Final grade ${formatGrade(st.grade!)} · ${units}`;
+                    if (st.percent == null) return `No scores yet · ${units}`;
+                    return `Standing ${st.percent.toFixed(1)}% · est. ${formatGrade(st.estimatedGrade!)} · ${units}`;
+                  })()}
+                </Text>
+
                 <View style={styles.cardActions}>
+                  <Pressable onPress={() => setGradesFor(course)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${course.code} grades`}>
+                    <Text style={styles.actionEdit}>Grades</Text>
+                  </Pressable>
                   <Pressable onPress={() => openEdit(course)} hitSlop={6}>
                     <Text style={styles.actionEdit}>Edit</Text>
                   </Pressable>
@@ -433,6 +487,8 @@ export default function CoursesScreen() {
         />
       </Modal>
 
+      <GradesDialog course={gradesCourse} onClose={() => setGradesFor(null)} />
+
       <ConfirmDialog
         open={!!removing}
         onOpenChange={(open) => !open && setRemoving(null)}
@@ -451,6 +507,8 @@ export default function CoursesScreen() {
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
   screen: { flex: 1, backgroundColor: "transparent" },
+  formError: { color: t.danger, fontSize: 13, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  gradeLine: { fontSize: 13, color: t.muted, marginTop: spacing.xs },
   content: {
     padding: spacing.lg,
     paddingTop: spacing.xl,

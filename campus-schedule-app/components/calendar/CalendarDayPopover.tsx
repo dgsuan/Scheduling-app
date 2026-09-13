@@ -1,4 +1,4 @@
-import { CalendarClock, Plus, StickyNote, X } from "lucide-react-native";
+import { CalendarClock, Plus, Repeat, StickyNote, X } from "lucide-react-native";
 import { Pressable, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
 
 import { PopIn } from "@/components/PopIn";
@@ -9,6 +9,7 @@ import { Text } from "@/components/ui/text";
 import { colors } from "@/constants/theme";
 import type { Task } from "@/context/store";
 import { formatDayLong, type AgendaItem } from "@/lib/calendar";
+import type { DatedOccurrence } from "@/lib/schedule";
 import { isDueSoon, isOverdue } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
 
@@ -61,9 +62,13 @@ export function CalendarDayPopover({
   onAdd,
   onEdit,
   onToggleTask,
+  onCancelClass,
+  onRestoreClass,
   style,
   popoverRef,
 }: {
+  onCancelClass?: (occ: DatedOccurrence) => void;
+  onRestoreClass?: (occ: DatedOccurrence) => void;
   iso: string;
   items: AgendaItem[];
   onClose: () => void;
@@ -111,16 +116,53 @@ export function CalendarDayPopover({
                     </View>
                   </Row>
                 );
-              case "class":
+              case "class": {
+                const { status } = item.occ;
+                const off = status !== "scheduled";
+                const reason =
+                  status === "cancelled"
+                    ? "Cancelled"
+                    : status === "holiday"
+                      ? `No class · ${item.occ.holiday?.name ?? "holiday"}`
+                      : null;
                 return (
-                  <Row key={item.key} label={`${item.title}, ${item.timeLabel}`}>
-                    <View className="mt-1.5 size-2 rounded-full" style={{ backgroundColor: item.occ.course.color }} />
-                    <View className="flex-1">
-                      <Title>{item.occ.course.title ? `${item.title} · ${item.occ.course.title}` : item.title}</Title>
-                      <Sub>{`${item.timeLabel}${item.occ.meeting.room ? ` · ${item.occ.meeting.room}` : ""}`}</Sub>
+                  <View key={item.key} className="flex-row items-start gap-2.5 px-2 py-1.5">
+                    <View
+                      className={cn("mt-1.5 size-2 rounded-full", off && "opacity-40")}
+                      style={{ backgroundColor: item.occ.course.color }}
+                    />
+                    <View className="flex-1" accessibilityLabel={`${item.title}, ${item.timeLabel}${reason ? `, ${reason}` : ""}`}>
+                      <Title done={off}>
+                        {item.occ.course.title ? `${item.title} · ${item.occ.course.title}` : item.title}
+                      </Title>
+                      <Sub className={status === "cancelled" ? "text-destructive" : undefined}>
+                        {reason ?? `${item.timeLabel}${item.occ.meeting.room ? ` · ${item.occ.meeting.room}` : ""}`}
+                      </Sub>
                     </View>
-                  </Row>
+                    {status === "scheduled" && onCancelClass ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="-my-1 h-7 px-2"
+                        onPress={() => onCancelClass(item.occ)}
+                        accessibilityLabel={`Cancel ${item.title} on this day`}
+                      >
+                        <Text className="text-muted-foreground text-xs">Cancel</Text>
+                      </Button>
+                    ) : status === "cancelled" && onRestoreClass ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="-my-1 h-7 px-2"
+                        onPress={() => onRestoreClass(item.occ)}
+                        accessibilityLabel={`Restore ${item.title} on this day`}
+                      >
+                        <Text className="text-primary text-xs">Restore</Text>
+                      </Button>
+                    ) : null}
+                  </View>
                 );
+              }
               case "event":
                 return (
                   <Row key={item.key} label={`${item.title}, ${item.timeLabel}. Edit`} onPress={() => onEdit(item)}>
@@ -132,16 +174,23 @@ export function CalendarDayPopover({
                   </Row>
                 );
               case "task": {
-                const overdue = isOverdue(item.task, now);
-                const soon = isDueSoon(item.task, now);
+                const overdue = !item.projected && isOverdue(item.task, now);
+                const soon = !item.projected && isDueSoon(item.task, now);
                 return (
                   <View key={item.key} className="flex-row items-start gap-2.5 px-2 py-1.5">
                     <View className="mt-0.5">
-                      <TaskCheckbox
-                        checked={item.task.done}
-                        onCheckedChange={(done) => onToggleTask(item.task, done)}
-                        label={item.title}
-                      />
+                      {item.projected ? (
+                        // Only the series' current occurrence can be completed.
+                        <View className="size-5 items-center justify-center">
+                          <Icon as={Repeat} size={14} className="text-muted-foreground" />
+                        </View>
+                      ) : (
+                        <TaskCheckbox
+                          checked={item.task.done}
+                          onCheckedChange={(done) => onToggleTask(item.task, done)}
+                          label={item.title}
+                        />
+                      )}
                     </View>
                     <Pressable
                       className="-my-1 flex-1 rounded-md px-1 py-1 web:hover:bg-accent web:transition-colors"

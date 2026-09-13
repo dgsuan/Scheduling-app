@@ -5,19 +5,29 @@ import { Text } from "@/components/ui/text";
 import { colors } from "@/constants/theme";
 import { holidaysOn } from "@/constants/holidays";
 import type { Course, Task, Weekday } from "@/context/store";
-import { WEEKDAY_SHORT, occurrencesOnDay } from "@/lib/schedule";
+import { WEEKDAY_SHORT, classesOnDate, type ScheduleRules } from "@/lib/schedule";
 import { isoDate } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
 
 // The next seven days at a glance: classes as course-colored dots, tasks
 // due as a small square. Tapping jumps to the Calendar.
 
-export function WeekStrip({ courses, tasks, now }: { courses: Course[]; tasks: Task[]; now: Date }) {
+export function WeekStrip({
+  courses,
+  tasks,
+  now,
+  rules,
+}: {
+  courses: Course[];
+  tasks: Task[];
+  now: Date;
+  rules: ScheduleRules;
+}) {
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
     const iso = isoDate(d);
     const weekday = d.getDay() as Weekday;
-    const classColors = [...new Set(occurrencesOnDay(courses, weekday).map((o) => o.course.color))];
+    const classColors = [...new Set(classesOnDate(courses, iso, rules).map((o) => o.course.color))];
     return {
       iso,
       day: d.getDate(),

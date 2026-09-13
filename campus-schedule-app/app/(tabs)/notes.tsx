@@ -7,7 +7,6 @@ import {
   useState,
 } from "react";
 import {
-  Alert,
   Animated,
   Image,
   Linking,
@@ -15,6 +14,7 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,12 +29,14 @@ import {
 } from "react-native-gesture-handler";
 import Svg, { Circle, Defs, Path, Pattern, Rect } from "react-native-svg";
 import * as DocumentPicker from "expo-document-picker";
+import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 
 import { colors, radius, spacing, type Palette } from "@/constants/theme";
 import { useTheme } from "@/context/theme";
 import {
   GENERAL_CANVAS,
+  useAllCanvases,
   useCanvas,
   useCourses,
   type CanvasItem,
@@ -45,7 +47,10 @@ import {
 import { strokePath, strokesToDrawing, type DrawingShape } from "@/lib/drawing";
 import { ColorPicker } from "@/components/ColorPicker";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { PopIn } from "@/components/PopIn";
+import { useToast } from "@/components/Toaster";
+import { isEphemeralUri, pickedImageToStored } from "@/lib/imageData";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { Icon } from "@/components/ui/icon";
 import { Text as UIText } from "@/components/ui/text";
@@ -132,11 +137,14 @@ function Draggable({
   item,
   disabled,
   isNew,
+  highlight,
   onMoveEnd,
   children,
 }: {
   item: CanvasItem;
   disabled: boolean;
+  /** Briefly ring the item (e.g. after jumping to it from search). */
+  highlight?: boolean;
   /** Created after the canvas opened → spring in instead of popping. */
   isNew?: boolean;
   onMoveEnd: (x: number, y: number) => void;
@@ -202,7 +210,12 @@ function Draggable({
           },
         ]}
       >
-        {isNew ? <PopIn>{children}</PopIn> : children}
+        <View
+          aria-selected={highlight || undefined}
+          style={highlight ? { borderRadius: 12, padding: 3, margin: -3, borderWidth: 2, borderColor: colors.accent } : undefined}
+        >
+          {isNew || highlight ? <PopIn key={highlight ? "hl" : "new"}>{children}</PopIn> : children}
+        </View>
       </Animated.View>
     </GestureDetector>
   );
@@ -335,9 +348,11 @@ function TodoCard({
 function ImageCard({
   item,
   remove,
+  onOpen,
 }: {
   item: Extract<CanvasItem, { kind: "image" }>;
   remove: () => void;
+  onOpen: () => void;
 }) {
   const ratio = item.width && item.height ? item.height / item.width : 0.75;
   let w = IMG_MAX_W;
@@ -346,10 +361,28 @@ function ImageCard({
     h = IMG_MAX_H;
     w = h / ratio;
   }
+  // Older web builds saved short-lived blob: URLs that no longer load.
+  const broken = isEphemeralUri(item.uri);
   return (
     <View style={[cardStyles.card, cardStyles.mediaCard, { width: w + 4 }]}>
       <ItemBar onDelete={remove} />
-      <Image source={{ uri: item.uri }} style={{ width: w, height: h, borderRadius: 4 }} />
+      {broken ? (
+        <View style={[cardStyles.brokenImage, { width: w, height: Math.max(90, Math.min(h, 140)) }]}>
+          <Text style={cardStyles.brokenTitle}>Image unavailable</Text>
+          <Text style={cardStyles.brokenHint}>
+            It was saved by an older version and can&apos;t be loaded. Delete it and add the image again.
+          </Text>
+        </View>
+      ) : (
+        <Pressable
+          onPress={onOpen}
+          accessibilityRole="button"
+          accessibilityLabel="Open image"
+          className="web:cursor-zoom-in web:transition-opacity web:hover:opacity-90"
+        >
+          <Image source={{ uri: item.uri }} style={{ width: w, height: h, borderRadius: 4 }} />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -357,9 +390,11 @@ function ImageCard({
 function DocumentCard({
   item,
   remove,
+  onOpenError,
 }: {
   item: Extract<CanvasItem, { kind: "document" }>;
   remove: () => void;
+  onOpenError?: () => void;
 }) {
   const kb = item.size ? Math.max(1, Math.round(item.size / 1024)) : null;
   return (
@@ -368,9 +403,7 @@ function DocumentCard({
       <Pressable
         style={cardStyles.docBody}
         onPress={() =>
-          Linking.openURL(item.uri).catch(() =>
-            Alert.alert("Can't open", "No app available to open this file.")
-          )
+          Linking.openURL(item.uri).catch(() => onOpenError?.())
         }
       >
         <Text style={cardStyles.docIcon}>📄</Text>
@@ -763,6 +796,30 @@ export default function NotesScreen() {
 
   const [active, setActive] = useState<string>(GENERAL_CANVAS);
   const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>([]);
+  const [focusItem, setFocusItem] = useState<string | null>(null);
+  const canvases = useAllCanvases();
+
+  // Deep link from search: ?canvas=<id>&item=<id> opens the notebook (and
+  // folder path) holding the item, then scrolls to and highlights it.
+  const params = useLocalSearchParams<{ canvas?: string; item?: string }>();
+  useEffect(() => {
+    if (!params.canvas) return;
+    const path: { id: string; name: string }[] = [];
+    let cursor = params.canvas;
+    for (let guard = 0; guard < 20; guard++) {
+      if (cursor === GENERAL_CANVAS || courses.some((c) => c.id === cursor)) break;
+      const parent = Object.entries(canvases).find(([, data]) => data.items.some((it) => it.kind === "folder" && it.id === cursor));
+      if (!parent) break;
+      const folder = parent[1].items.find((it) => it.id === cursor);
+      path.unshift({ id: cursor, name: folder && folder.kind === "folder" ? folder.name || "Folder" : "Folder" });
+      cursor = parent[0];
+    }
+    setActive(cursor === GENERAL_CANVAS || courses.some((c) => c.id === cursor) ? cursor : GENERAL_CANVAS);
+    setFolderStack(path);
+    setFocusItem(params.item ?? null);
+    router.setParams({ canvas: undefined, item: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.canvas, params.item]);
 
   useEffect(() => {
     if (active !== GENERAL_CANVAS && !courses.some((c) => c.id === active)) {
@@ -834,6 +891,8 @@ export default function NotesScreen() {
         palette={t}
         styles={styles}
         onOpenFolder={(f) => setFolderStack((s) => [...s, f])}
+        focusItemId={focusItem}
+        onFocusHandled={() => setFocusItem(null)}
       />
     </View>
   );
@@ -844,11 +903,15 @@ function CanvasView({
   palette,
   styles,
   onOpenFolder,
+  focusItemId,
+  onFocusHandled,
 }: {
   canvasId: string;
   palette: Palette;
   styles: ReturnType<typeof makeStyles>;
   onOpenFolder: (f: { id: string; name: string }) => void;
+  focusItemId?: string | null;
+  onFocusHandled?: () => void;
 }) {
   const {
     ready,
@@ -863,6 +926,7 @@ function CanvasView({
     updateDrawing,
     removeDrawing,
   } = useCanvas(canvasId);
+  const { toast } = useToast();
 
   const [drawing, setDrawing] = useState(false);
   const [ink, setInk] = useState(INK_COLORS[0]);
@@ -876,6 +940,33 @@ function CanvasView({
   if (initialIds.current === null && ready) initialIds.current = new Set(items.map((it) => it.id));
   const scroll = useRef({ x: 0, y: 0 });
   const viewport = useRef({ w: 0, h: 0 });
+  const hScrollRef = useRef<any>(null);
+  const vScrollRef = useRef<any>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  // Scroll a searched-for item into view and flash a highlight on it.
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(highlightTimer.current), []);
+  useEffect(() => {
+    if (!focusItemId || !ready) return;
+    const item = items.find((it) => it.id === focusItemId);
+    if (!item) {
+      onFocusHandled?.();
+      return;
+    }
+    // Wait for layout, scroll, highlight — and only then mark the request
+    // handled (clearing it earlier would cancel this timer via cleanup).
+    const t = setTimeout(() => {
+      hScrollRef.current?.scrollTo?.({ x: Math.max(0, item.x - viewport.current.w / 2 + CARD_W / 2), animated: true });
+      vScrollRef.current?.scrollTo?.({ y: Math.max(0, item.y - viewport.current.h / 3), animated: true });
+      setHighlightId(item.id);
+      clearTimeout(highlightTimer.current);
+      highlightTimer.current = setTimeout(() => setHighlightId(null), 1800);
+      onFocusHandled?.();
+    }, 120);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusItemId, ready]);
 
   const centerXY = () => ({
     x: Math.min(
@@ -923,20 +1014,23 @@ function CanvasView({
   const addImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert("Permission needed", "Allow photo access to import an image.");
+      toast({ message: "Photo access needed", description: "Allow photo access to add an image.", tone: "danger" });
       return;
     }
-    const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.7 });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 });
     if (res.canceled) return;
-    const a = res.assets[0];
-    addItem({
-      kind: "image",
-      uri: a.uri,
-      width: a.width ?? 1,
-      height: a.height ?? 1,
-      ...centerXY(),
-    });
+    try {
+      const stored = await pickedImageToStored(res.assets[0]);
+      addItem({ kind: "image", ...stored, ...centerXY() });
+    } catch {
+      toast({ message: "Couldn't add that image", description: "Try a JPEG or PNG file.", tone: "danger" });
+    }
   };
+
+  const [viewingImageId, setViewingImageId] = useState<string | null>(null);
+  const viewingImage = items.find(
+    (it): it is Extract<CanvasItem, { kind: "image" }> => it.kind === "image" && it.id === viewingImageId
+  );
 
   const addDocument = async () => {
     const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
@@ -975,6 +1069,7 @@ function CanvasView({
   return (
     <View style={styles.canvasArea}>
       <GHScrollView
+        ref={hScrollRef}
         style={styles.canvasScroll}
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -987,6 +1082,7 @@ function CanvasView({
         }}
       >
         <GHScrollView
+          ref={vScrollRef}
           showsVerticalScrollIndicator={false}
           scrollEnabled={!drawing}
           onScroll={onVScroll}
@@ -1014,6 +1110,7 @@ function CanvasView({
                 item={item}
                 disabled={drawing}
                 isNew={!!initialIds.current && !initialIds.current.has(item.id)}
+                highlight={highlightId === item.id}
                 onMoveEnd={(x, y) => handleItemDrop(item, x, y)}
               >
                 {item.kind === "text" ? (
@@ -1029,7 +1126,11 @@ function CanvasView({
                     remove={() => removeItem(item.id)}
                   />
                 ) : item.kind === "image" ? (
-                  <ImageCard item={item} remove={() => removeItem(item.id)} />
+                  <ImageCard
+                    item={item}
+                    remove={() => removeItem(item.id)}
+                    onOpen={() => setViewingImageId(item.id)}
+                  />
                 ) : item.kind === "folder" ? (
                   <FolderCard
                     item={item}
@@ -1038,7 +1139,13 @@ function CanvasView({
                     onDelete={() => setFolderToDelete(item)}
                   />
                 ) : (
-                  <DocumentCard item={item} remove={() => removeItem(item.id)} />
+                  <DocumentCard
+                    item={item}
+                    remove={() => removeItem(item.id)}
+                    onOpenError={() =>
+                      toast({ message: "Can't open this file", description: "No app is available to open it.", tone: "danger" })
+                    }
+                  />
                 )}
               </Draggable>
             ))}
@@ -1181,6 +1288,42 @@ function CanvasView({
         </View>
       </Modal>
 
+      {viewingImage ? (
+        <ImageLightbox
+          uri={viewingImage.uri}
+          width={viewingImage.width}
+          height={viewingImage.height}
+          originalUri={viewingImage.originalUri}
+          title="Image"
+          onClose={() => setViewingImageId(null)}
+          onSave={
+            Platform.OS === "web"
+              ? (next) =>
+                  updateItem(viewingImage.id, {
+                    ...next,
+                    // Keep the very first version so edits can always be reverted.
+                    originalUri: viewingImage.originalUri ?? viewingImage.uri,
+                    originalWidth: viewingImage.originalWidth ?? viewingImage.width,
+                    originalHeight: viewingImage.originalHeight ?? viewingImage.height,
+                  })
+              : undefined
+          }
+          onRevert={
+            viewingImage.originalUri
+              ? () =>
+                  updateItem(viewingImage.id, {
+                    uri: viewingImage.originalUri,
+                    width: viewingImage.originalWidth ?? viewingImage.width,
+                    height: viewingImage.originalHeight ?? viewingImage.height,
+                    originalUri: undefined,
+                    originalWidth: undefined,
+                    originalHeight: undefined,
+                  })
+              : undefined
+          }
+        />
+      ) : null}
+
       {folderToDelete ? (
         <DeleteFolderDialog
           folder={folderToDelete}
@@ -1262,6 +1405,16 @@ const cardStyles = StyleSheet.create({
     elevation: 2,
   },
   mediaCard: { backgroundColor: "#FFFFFF", padding: 2 },
+  brokenImage: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.sm,
+    borderRadius: 4,
+    backgroundColor: "#F3F1EC",
+    gap: 4,
+  },
+  brokenTitle: { fontSize: 12, fontWeight: "700", color: "#5A5346" },
+  brokenHint: { fontSize: 11, color: "#7A7264", textAlign: "center", lineHeight: 15 },
   itemBar: {
     flexDirection: "row",
     alignItems: "center",

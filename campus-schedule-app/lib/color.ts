@@ -45,3 +45,35 @@ export const HUE_SATURATION = 68;
 export function hueSwatch(hue: number): string {
   return hslToHex(hue, HUE_SATURATION, 52);
 }
+
+/** "#AABBCC" → [h 0–360, s 0–100, l 0–100]. */
+export function hexToHsl(hex: string): [number, number, number] {
+  const n = normalizeHex(hex) ?? "#000000";
+  const r = parseInt(n.slice(1, 3), 16) / 255;
+  const g = parseInt(n.slice(3, 5), 16) / 255;
+  const b = parseInt(n.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, Math.round(l * 1000) / 10];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [Math.round(h * 60), Math.round(s * 1000) / 10, Math.round(l * 1000) / 10];
+}
+
+/** WCAG relative luminance (0–1). */
+export function relativeLuminance(hex: string): number {
+  const n = normalizeHex(hex) ?? "#000000";
+  const channel = (i: number) => {
+    const c = parseInt(n.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+/** WCAG contrast ratio between two colors (1–21). */
+export function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}

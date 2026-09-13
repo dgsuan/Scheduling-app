@@ -24,6 +24,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="courses" options={{ title: "Courses" }} />
       <Tabs.Screen name="notes" options={{ title: "Notes" }} />
       <Tabs.Screen name="import" options={{ title: "Import" }} />
+      <Tabs.Screen name="settings" options={{ title: "Settings" }} />
     </Tabs>
   );
 }
