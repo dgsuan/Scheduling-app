@@ -27,8 +27,11 @@ const server = http
   .listen(PORT);
 
 // A build made with Supabase keys shows sharing/sections UI (signed out).
+// Look for an actual project URL: supabase-js itself contains "*.supabase.co",
+// so a bare "supabase.co" match would misreport a keyless (CI) build as keyed.
 const JS_DIR = path.join(ROOT, "_expo", "static", "js", "web");
-const KEYED = fs.readdirSync(JS_DIR).some((f) => /supabase\.co/.test(fs.readFileSync(path.join(JS_DIR, f), "utf8")));
+const PROJECT_URL = /https:\/\/[a-z0-9]{20}\.supabase\.co/;
+const KEYED = fs.readdirSync(JS_DIR).some((f) => PROJECT_URL.test(fs.readFileSync(path.join(JS_DIR, f), "utf8")));
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--no-sandbox"] });
 const results = [];
