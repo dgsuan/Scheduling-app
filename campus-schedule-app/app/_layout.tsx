@@ -11,6 +11,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AppServices } from "@/components/AppServices";
 import { CommandPaletteProvider } from "@/components/CommandPalette";
+import { AuthProvider } from "@/context/auth";
 import { FocusProvider } from "@/context/focus";
 import { ToastProvider } from "@/components/Toaster";
 import { AppProvider } from "@/context/store";
@@ -59,13 +60,15 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ThemeProvider>
           <ToastProvider>
-            <AppProvider>
-              <FocusProvider>
-                <CommandPaletteProvider>
-                  <ThemedShell />
-                </CommandPaletteProvider>
-              </FocusProvider>
-            </AppProvider>
+            <AuthProvider>
+              <AppProvider>
+                <FocusProvider>
+                  <CommandPaletteProvider>
+                    <ThemedShell />
+                  </CommandPaletteProvider>
+                </FocusProvider>
+              </AppProvider>
+            </AuthProvider>
           </ToastProvider>
         </ThemeProvider>
       </SafeAreaProvider>

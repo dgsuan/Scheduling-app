@@ -27,6 +27,7 @@ import {
   type ThemeScheme,
 } from "@/constants/theme";
 import { getTimeOfDay, msUntilNextPeriod, type TimeOfDay } from "@/lib/timeOfDay";
+import { emitLocalWrite } from "@/lib/syncEvents";
 import { ensureFonts } from "@/lib/webFonts";
 
 // Global theme: the user's Appearance settings (light/dark/system, preset,
@@ -45,6 +46,8 @@ type ThemeCtx = {
   appearance: Appearance;
   setAppearance: (patch: Partial<Appearance>) => void;
   resetAppearance: () => void;
+  /** Replace everything at once (e.g. from cloud sync). */
+  replaceAppearance: (next: unknown) => void;
   toggle: () => void;
   setScheme: (s: ThemeScheme) => void;
 };
@@ -168,7 +171,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     if (!loaded.current) return;
-    AsyncStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance)).catch(() => {});
+    const json = JSON.stringify(appearance);
+    AsyncStorage.setItem(APPEARANCE_KEY, json)
+      .then(() => emitLocalWrite(APPEARANCE_KEY, json))
+      .catch(() => {});
   }, [appearance]);
 
   const requested: ThemeScheme =
@@ -186,6 +192,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setAppearanceState((prev) => normalizeAppearance({ ...prev, ...patch }));
   }, []);
   const resetAppearance = useCallback(() => setAppearanceState(DEFAULT_APPEARANCE), []);
+  const replaceAppearance = useCallback((next: unknown) => setAppearanceState(normalizeAppearance(next)), []);
 
   const value = useMemo<ThemeCtx>(
     () => ({
@@ -196,11 +203,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       appearance,
       setAppearance,
       resetAppearance,
+      replaceAppearance,
       // An explicit light/dark choice replaces a custom background.
       toggle: () => setAppearance({ mode: theme.scheme === "dark" ? "light" : "dark", background: null }),
       setScheme: (s: ThemeScheme) => setAppearance({ mode: s, background: null }),
     }),
-    [theme, tod, appearance, setAppearance, resetAppearance]
+    [theme, tod, appearance, setAppearance, resetAppearance, replaceAppearance]
   );
 
   return (
@@ -240,8 +248,8 @@ export function useThemeControls() {
 }
 
 export function useAppearance() {
-  const { appearance, setAppearance, resetAppearance, theme } = useThemeCtx();
-  return { appearance, setAppearance, resetAppearance, theme };
+  const { appearance, setAppearance, resetAppearance, replaceAppearance, theme } = useThemeCtx();
+  return { appearance, setAppearance, resetAppearance, replaceAppearance, theme };
 }
 
 /** Page zoom from Appearance (web only) — gesture math divides by it. */

@@ -14,6 +14,7 @@ import { addDaysIso, daysBetween } from "@/lib/dates";
 import type { ImportedEvent, ImportedTask } from "@/lib/ics";
 import { nextRepeatDate, repeatStop } from "@/lib/recurrence";
 import type { ScheduleRules } from "@/lib/schedule";
+import { emitLocalWrite } from "@/lib/syncEvents";
 
 // App-wide local data store: courses, per-canvas notes/drawings, tasks,
 // events, planner settings, class cancellations and grades. Everything
@@ -268,6 +269,9 @@ type StoreShape = {
 
   /** Last persistence failure (usually storage quota), for the UI to surface. */
   storageError: string | null;
+
+  /** Replace one slice (by storage key) with data from elsewhere, e.g. cloud sync. */
+  applyStored: (storageKey: string, value: unknown) => void;
 };
 
 export const STORAGE_KEYS = {
@@ -395,7 +399,10 @@ function usePersist(key: string, value: unknown, ready: boolean, onError: (e: un
       first.current = false;
       return;
     }
-    AsyncStorage.setItem(key, JSON.stringify(value)).catch(onError);
+    const json = JSON.stringify(value);
+    AsyncStorage.setItem(key, json)
+      .then(() => emitLocalWrite(key, json))
+      .catch(onError);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, key, value]);
 }
@@ -743,6 +750,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setGrades((prev) => ({ ...prev, [courseId]: g }));
   }, []);
 
+  // Sync --------------------------------------------------------------
+  const applyStored = useCallback((storageKey: string, value: unknown) => {
+    const list = <T,>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
+    const obj = <T,>(v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as T) : ({} as T));
+    switch (storageKey) {
+      case STORAGE_KEYS.courses:
+        setCourses(list<Course>(value));
+        break;
+      case STORAGE_KEYS.canvases:
+        setCanvases(normalizeCanvases(value));
+        break;
+      case STORAGE_KEYS.tasks:
+        setTasks(list<Task>(value));
+        break;
+      case STORAGE_KEYS.events:
+        setEvents(list<CalendarEvent>(value));
+        break;
+      case STORAGE_KEYS.settings:
+        setSettings(normalizeSettings(value));
+        break;
+      case STORAGE_KEYS.cancellations:
+        setCancellations(list<Cancellation>(value));
+        break;
+      case STORAGE_KEYS.grades:
+        setGrades(obj<Record<string, CourseGrades>>(value));
+        break;
+    }
+  }, []);
+
   const value = useMemo<StoreShape>(
     () => ({
       ready,
@@ -783,6 +819,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       grades,
       setCourseGrades,
       storageError,
+      applyStored,
     }),
     [
       ready,
@@ -823,6 +860,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       grades,
       setCourseGrades,
       storageError,
+      applyStored,
     ]
   );
 
@@ -916,6 +954,11 @@ export function useCancellations() {
 export function useGrades() {
   const { grades, setCourseGrades } = useStore();
   return { grades, setCourseGrades };
+}
+
+export function useStoreApply() {
+  const { ready, applyStored } = useStore();
+  return { ready, applyStored };
 }
 
 /** The rules every schedule computation should use (term, holidays, cancellations). */

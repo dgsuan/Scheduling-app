@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { ReminderEngine } from "@/components/ReminderEngine";
+import { SyncEngine } from "@/components/SyncEngine";
 import { FocusBar } from "@/context/focus";
 import { useToast } from "@/components/Toaster";
 import { useSettings } from "@/context/store";
@@ -27,6 +28,7 @@ export function AppServices() {
   return (
     <>
       <ReminderEngine />
+      <SyncEngine />
       <StorageErrorWatcher />
       <KeyboardShortcuts />
       <FocusBar />

@@ -1,6 +1,7 @@
 import { ScrollView } from "react-native";
 
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { AccountSection } from "@/components/settings/AccountSection";
 import { AppearanceSection } from "@/components/settings/AppearanceSection";
 import { BackupSection } from "@/components/settings/BackupSection";
 import { InstallSection } from "@/components/settings/InstallSection";
@@ -18,6 +19,7 @@ export default function SettingsScreen() {
       keyboardShouldPersistTaps="handled"
     >
       <ScreenHeader title="Settings" subtitle="Make it yours, set your semester, and keep your data safe." />
+      <AccountSection />
       <SemesterSection />
       <RemindersSection />
       <AppearanceSection />
