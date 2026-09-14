@@ -97,7 +97,7 @@ try {
   check("Schedule: time remaining", /ends in\s*1 hr 12 min/i.test(txt), (txt.match(/ends in[^\n]*/i) || [""])[0]);
   check("Schedule: greeting follows time", txt.includes("Good afternoon"));
   check("Time-of-day: afternoon", (await tod(page)) === "afternoon", await tod(page));
-  check("Sidebar navigation on desktop", !!(await page.$('[role="tablist"]')) && txt.includes("campus"));
+  check("Sidebar navigation on desktop", !!(await page.$('[role="tablist"]')) && !!(await page.$('[aria-label="isked"]')));
   await page.screenshot({ path: path.join(SHOTS, "01-home-afternoon.png") });
 
   await page.goto(URL("/calendar"), { waitUntil: "networkidle0" });

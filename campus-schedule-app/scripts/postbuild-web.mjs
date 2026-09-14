@@ -32,11 +32,11 @@ const head = [
   `<link rel="apple-touch-icon" href="${base}icons/icon-192.png" />`,
   `<meta name="apple-mobile-web-app-capable" content="yes" />`,
   `<meta name="mobile-web-app-capable" content="yes" />`,
-  `<meta name="apple-mobile-web-app-title" content="Campus" />`,
+  `<meta name="apple-mobile-web-app-title" content="Isked" />`,
   `<script>${prepaint}</script>`,
 ].join("\n    ");
 
-// Insert right after <title> so the theme is applied before stylesheets paint.
-html = html.replace(/(<title>[^<]*<\/title>)/, `$1\n    ${head}`);
+// Set the tab title, and insert right after <title> so the theme is applied before stylesheets paint.
+html = html.replace(/<title>[^<]*<\/title>/, `<title>Isked</title>\n    ${head}`);
 fs.writeFileSync(file, html);
 console.log(`postbuild-web: injected manifest + pre-paint theme into ${path.relative(process.cwd(), file)}`);

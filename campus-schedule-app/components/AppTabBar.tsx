@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Pressable, View, type LayoutRectangle } from "react-native";
+import { Image, Pressable, View, type LayoutRectangle } from "react-native";
 import Animated, {
   ReduceMotion,
   useAnimatedStyle,
@@ -28,7 +28,7 @@ import { useCommandPalette } from "@/components/CommandPalette";
 import { SyncBadge } from "@/components/SyncBadge";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
-import { ThemeToggle, useTimeOfDay } from "@/context/theme";
+import { ThemeToggle, useTheme, useTimeOfDay } from "@/context/theme";
 import type { TimeOfDay } from "@/lib/timeOfDay";
 import { useNow } from "@/lib/useNow";
 import { display12h } from "@/lib/schedule";
@@ -37,6 +37,12 @@ import { cn } from "@/lib/utils";
 // App navigation. A sidebar on wide screens, a bottom bar on narrow ones.
 // A single highlight springs between items so switching tabs feels
 // physical rather than a hard swap.
+
+// The Isked wordmark (rendered by scripts/gen-icons.mjs), one per theme.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const WORDMARK_LIGHT = require("../assets/wordmark-light.png");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const WORDMARK_DARK = require("../assets/wordmark-dark.png");
 
 const ICONS: Record<string, LucideIcon> = {
   index: CalendarClock,
@@ -97,6 +103,7 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
   const insets = useSafeAreaInsets();
   const { setOpen } = useCommandPalette();
   const openPalette = () => setOpen(true);
+  const { scheme } = useTheme();
 
   const items = state.routes.map((route, i) => {
     const { options } = descriptors[route.key];
@@ -151,9 +158,14 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
   if (vertical) {
     return (
       <View className="border-border/70 w-[232px] border-r px-3 pb-4 pt-6">
-        <Text className="font-display mb-8 px-3 text-[22px] font-semibold">
-          campus<Text className="text-primary font-display text-[22px] font-semibold">.</Text>
-        </Text>
+        <View className="mb-7 px-2" accessibilityRole="header">
+          <Image
+            source={scheme === "dark" ? WORDMARK_DARK : WORDMARK_LIGHT}
+            style={{ width: 96, height: 40 }}
+            accessibilityLabel="isked"
+            accessibilityIgnoresInvertColors
+          />
+        </View>
         <Pressable
           onPress={openPalette}
           accessibilityRole="button"

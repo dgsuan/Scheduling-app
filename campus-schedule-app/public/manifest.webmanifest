@@ -1,7 +1,7 @@
 {
-  "name": "Campus Schedule",
-  "short_name": "Campus",
-  "description": "Classes, tasks, notes and calendar in one place.",
+  "name": "Isked",
+  "short_name": "Isked",
+  "description": "Your semester in one place: classes, tasks, notes, calendar and class sections.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

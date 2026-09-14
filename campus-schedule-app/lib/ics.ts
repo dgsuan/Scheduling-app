@@ -338,14 +338,14 @@ function fold(line: string): string {
 const compactDate = (iso: string) => iso.replace(/-/g, "");
 const compactTime = (hhmm: string) => `${hhmm.replace(":", "")}00`;
 
-export function buildIcs(events: IcsExportEvent[], calendarName = "Campus Schedule", now = new Date()): string {
+export function buildIcs(events: IcsExportEvent[], calendarName = "Isked", now = new Date()): string {
   const stamp = `${now.getUTCFullYear()}${pad2(now.getUTCMonth() + 1)}${pad2(now.getUTCDate())}T${pad2(
     now.getUTCHours()
   )}${pad2(now.getUTCMinutes())}${pad2(now.getUTCSeconds())}Z`;
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Campus Schedule//EN",
+    "PRODID:-//Isked//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeText(calendarName)}`,

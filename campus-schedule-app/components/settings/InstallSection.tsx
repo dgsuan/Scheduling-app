@@ -22,7 +22,7 @@ export function InstallSection() {
         : "Use your browser's menu → “Install app” or “Add to Home screen”.";
 
   return (
-    <SettingsSection title="Install" description="Use Campus Schedule like a regular app on your phone or laptop.">
+    <SettingsSection title="Install" description="Use Isked like a regular app on your phone or laptop.">
       <SettingsRow label="Install as an app" hint={hint} last>
         {install.installed ? (
           <View className="flex-row items-center gap-1.5">

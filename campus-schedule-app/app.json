@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Campus Schedule",
+    "name": "Isked",
     "slug": "campus-schedule-app",
     "scheme": "campusschedule",
     "version": "1.0.0",
@@ -18,7 +18,7 @@
       "package": "com.davesuan.campusschedule",
       "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#28716A",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

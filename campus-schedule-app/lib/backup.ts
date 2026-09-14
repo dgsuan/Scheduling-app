@@ -58,7 +58,7 @@ export async function createBackup(now = new Date()): Promise<BackupFile> {
 
 export function backupFilename(now = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
-  return `campus-schedule-backup-${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}.json`;
+  return `isked-backup-${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}.json`;
 }
 
 // --- Validation ----------------------------------------------------------------
@@ -207,7 +207,7 @@ export function validateBackup(text: string): ValidationResult {
   const errors: string[] = [];
   const c = makeChecker(errors);
   if (!c.isObj(parsed) || parsed.app !== BACKUP_APP) {
-    return { ok: false, errors: ["This isn't a Campus Schedule backup file."] };
+    return { ok: false, errors: ["This isn't an Isked backup file."] };
   }
   if (typeof parsed.version !== "number") return { ok: false, errors: ["The backup has no version number."] };
   if (parsed.version > BACKUP_VERSION) {

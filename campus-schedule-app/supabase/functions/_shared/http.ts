@@ -103,7 +103,7 @@ export async function safeFetchText(raw: string, opts: { maxBytes?: number; time
     const res = await fetch(url, {
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
-      headers: { accept: "text/calendar, text/plain;q=0.8, */*;q=0.1", "user-agent": "CampusSchedule-CalendarSync/1.0" },
+      headers: { accept: "text/calendar, text/plain;q=0.8, */*;q=0.1", "user-agent": "Isked-CalendarSync/1.0" },
     });
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");

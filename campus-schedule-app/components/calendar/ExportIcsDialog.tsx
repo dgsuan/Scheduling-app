@@ -73,7 +73,7 @@ export function ExportIcsDialog({ open, onOpenChange }: { open: boolean; onOpenC
   }, [tasks, events, courses, rules, bounds, include]);
 
   const download = () => {
-    const filename = `campus-schedule-${today}.ics`;
+    const filename = `isked-${today}.ics`;
     if (downloadText(filename, buildIcs(items), "text/calendar")) {
       toast({ message: "Calendar file downloaded", description: `${items.length} item${items.length === 1 ? "" : "s"} · ${filename}` });
       onOpenChange(false);

@@ -273,7 +273,7 @@ try {
   const exported = file ? JSON.parse(fs.readFileSync(path.join(DL, file), "utf8")) : null;
   check(
     "Export downloads a timestamped JSON backup",
-    !!exported && /^campus-schedule-backup-2026-09-14-\d{4}\.json$/.test(file) && exported.data.tasks.length === 2 && exported.data.appearance.preset === "moss",
+    !!exported && /^isked-backup-2026-09-14-\d{4}\.json$/.test(file) && exported.data.tasks.length === 2 && exported.data.appearance.preset === "moss",
     file ?? "no file"
   );
 
@@ -384,7 +384,7 @@ try {
     const m = manifest ? await (await fetch(manifest)).json() : null;
     return { manifest, scope: reg?.scope, name: m?.name, icons: m?.icons?.length };
   });
-  check("Manifest linked and valid", pwa.name === "Campus Schedule" && pwa.icons === 3, pwa.manifest);
+  check("Manifest linked and valid", pwa.name === "Isked" && pwa.icons === 3, pwa.manifest);
   check("Service worker registered for the app path", pwa.scope === `${ORIGIN}${BASE}/`, pwa.scope);
   check("Install section present", (await text(page)).includes("Install as an app"));
   // Phone layout of Settings
