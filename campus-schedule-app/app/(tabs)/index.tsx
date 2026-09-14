@@ -7,6 +7,7 @@ import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } fr
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { GetStarted } from "@/components/schedule/GetStarted";
 import { RoomDialog } from "@/components/schedule/RoomDialog";
+import { WhatsNewBanner } from "@/components/schedule/WhatsNewBanner";
 import { ScheduleRow, TodayHero } from "@/components/schedule/TodayHero";
 import { WeekStrip } from "@/components/schedule/WeekStrip";
 import { TaskCheckbox } from "@/components/TaskCheckbox";
@@ -372,6 +373,7 @@ export default function ScheduleHomeScreen() {
         </View>
       ) : null}
 
+      <WhatsNewBanner />
       <GetStarted />
       <RoomDialog room={roomFor?.meeting.room ?? null} occurrence={roomFor} onClose={() => setRoomFor(null)} />
 

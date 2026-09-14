@@ -108,6 +108,7 @@ function PaletteBody({ close }: { close: () => void }) {
       { id: "a-import", group: "Actions", title: "Import a calendar (.ics)", icon: Download, keywords: "uvle ics", run: go(() => router.navigate("/import")) },
       { id: "a-settings", group: "Actions", title: "Open Settings", icon: Settings, keywords: "semester term reminders backup appearance theme", run: go(() => router.navigate("/settings")) },
       { id: "a-theme", group: "Actions", title: "Toggle dark mode", icon: Moon, keywords: "light dark theme", run: go(toggleTheme) },
+      { id: "a-guide", group: "Actions", title: "Open the guide", icon: BookOpen, keywords: "help guide tour tutorial", run: go(() => router.navigate("/guide")) },
     ];
     const taskResults: Result[] = tasks.map((t) => ({
       id: `t-${t.id}`,

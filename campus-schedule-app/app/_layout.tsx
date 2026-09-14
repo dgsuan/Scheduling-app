@@ -48,6 +48,7 @@ function ThemedShell() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="planner" />
           <Stack.Screen name="deadlines" />
+          <Stack.Screen name="guide" />
         </Stack>
       </NavThemeProvider>
       <AppServices />

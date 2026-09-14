@@ -217,6 +217,8 @@ export type PlannerSettings = {
   onboardingDismissed?: boolean;
   /** Recognize text in note images so search can find it. */
   imageTextSearch?: boolean;
+  /** Last Guide version seen (hides the "New in this update" banner). */
+  seenGuideVersion?: number;
 };
 
 export const DEFAULT_SETTINGS: PlannerSettings = {

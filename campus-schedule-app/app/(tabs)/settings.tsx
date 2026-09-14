@@ -4,6 +4,7 @@ import { ScreenHeader } from "@/components/ScreenHeader";
 import { AccountSection } from "@/components/settings/AccountSection";
 import { AppearanceSection } from "@/components/settings/AppearanceSection";
 import { BackupSection } from "@/components/settings/BackupSection";
+import { HelpSection } from "@/components/settings/HelpSection";
 import { InstallSection } from "@/components/settings/InstallSection";
 import { RemindersSection } from "@/components/settings/RemindersSection";
 import { SearchSection } from "@/components/settings/SearchSection";
@@ -27,6 +28,7 @@ export default function SettingsScreen() {
       <SearchSection />
       <BackupSection />
       <InstallSection />
+      <HelpSection />
     </ScrollView>
   );
 }
