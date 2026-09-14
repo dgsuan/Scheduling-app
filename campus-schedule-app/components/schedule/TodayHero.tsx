@@ -174,11 +174,14 @@ export function ScheduleRow({
   label,
   now,
   emphasis,
+  onRoomPress,
 }: {
   occ: ClassOccurrence;
   label?: string;
   now: Date;
   emphasis?: boolean;
+  /** Makes the room name open the room finder. */
+  onRoomPress?: () => void;
 }) {
   const startsIn = Math.ceil(occ.startMin - minutesNow(now));
   return (
@@ -193,7 +196,22 @@ export function ScheduleRow({
         </Text>
         {occ.course.title || occ.meeting.room ? (
           <Text className="text-muted-foreground text-[13px]" numberOfLines={1}>
-            {[occ.course.title, occ.meeting.room].filter(Boolean).join(" · ")}
+            {occ.course.title ?? ""}
+            {occ.course.title && occ.meeting.room ? " · " : ""}
+            {occ.meeting.room ? (
+              onRoomPress ? (
+                <Text
+                  onPress={onRoomPress}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Room ${occ.meeting.room}`}
+                  className="text-muted-foreground text-[13px] underline decoration-dotted web:hover:text-foreground"
+                >
+                  {occ.meeting.room}
+                </Text>
+              ) : (
+                occ.meeting.room
+              )
+            ) : null}
           </Text>
         ) : null}
       </View>

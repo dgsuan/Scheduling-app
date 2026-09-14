@@ -8,7 +8,10 @@ import { useToast } from "@/components/Toaster";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
+import { useAuth } from "@/context/auth";
 import { useSettings } from "@/context/store";
+import { disablePush, enablePush, pushActiveHere, pushSupport } from "@/lib/push";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   notificationPermission,
   requestNotificationPermission,
@@ -28,6 +31,57 @@ function usePermission() {
     return () => sub.remove();
   }, [refresh]);
   return { permission, setPermission, refresh };
+}
+
+/** Reminders that arrive even when the app is closed (web push from the server). */
+function BackgroundReminders() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [active, setActive] = useState(pushActiveHere);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!isSupabaseConfigured) return null;
+  const support = pushSupport();
+
+  const hint = !user
+    ? "Sign in under Account & sync to get reminders on this device even when the app is closed."
+    : support === "no-key"
+      ? "Not set up for this site yet."
+      : support === "unsupported"
+        ? "This browser can't get notifications while the app is closed. On iPhone, add the app to your Home Screen first."
+        : active
+          ? "On for this device. Reminders come from your synced courses and tasks, so changes made on any device count."
+          : "Uses your synced courses and tasks, so reminders arrive even when every tab is closed.";
+
+  const toggle = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (active) await disablePush();
+      else await enablePush();
+      setActive(pushActiveHere());
+      toast({ message: active ? "Background reminders are off on this device" : "Background reminders are on for this device" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsRow label="Remind me when the app is closed" hint={hint}>
+      <View className="items-start gap-1 sm:items-end">
+        <Button size="sm" variant={active ? "outline" : "default"} onPress={toggle} disabled={busy || !user || support !== "ok"}>
+          <Text>{busy ? "Working…" : active ? "Turn off" : "Turn on"}</Text>
+        </Button>
+        {error ? (
+          <Text className="text-destructive max-w-xs text-xs leading-4" role="alert">
+            {error}
+          </Text>
+        ) : null}
+      </View>
+    </SettingsRow>
+  );
 }
 
 export function RemindersSection() {
@@ -101,6 +155,7 @@ export function RemindersSection() {
             </View>
           </View>
 
+          <BackgroundReminders />
           <SettingsRow label="Before a class">
             <SegmentedControl<string>
               value={String(r.classLeadMin)}

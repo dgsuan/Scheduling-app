@@ -4,6 +4,7 @@ import { FileUp, Link2, TriangleAlert } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
+import { CalendarFeeds } from "@/components/import/CalendarFeeds";
 import { CrsImport } from "@/components/import/CrsImport";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { useToast } from "@/components/Toaster";
@@ -173,6 +174,8 @@ export default function ImportScreen() {
           </View>
         </View>
       </View>
+
+      <CalendarFeeds />
 
       {error ? (
         <View className="border-destructive/40 bg-destructive/10 mt-4 flex-row gap-2.5 rounded-xl border p-4" role="alert">

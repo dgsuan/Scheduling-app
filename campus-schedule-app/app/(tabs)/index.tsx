@@ -1,10 +1,12 @@
 import { router } from "expo-router";
-import { ArrowRight, Plus } from "lucide-react-native";
+import { ArrowRight, Plus, TriangleAlert } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { GetStarted } from "@/components/schedule/GetStarted";
+import { RoomDialog } from "@/components/schedule/RoomDialog";
 import { ScheduleRow, TodayHero } from "@/components/schedule/TodayHero";
 import { WeekStrip } from "@/components/schedule/WeekStrip";
 import { TaskCheckbox } from "@/components/TaskCheckbox";
@@ -14,6 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/text";
 import { colors } from "@/constants/theme";
 import { holidaysOn } from "@/constants/holidays";
+import { formatSpent } from "@/context/focus";
 import {
   GENERAL_CANVAS,
   useCanvas,
@@ -25,7 +28,8 @@ import {
   type Weekday,
 } from "@/context/store";
 import { agendaForDate, formatShortDate } from "@/lib/calendar";
-import { classesOnDate, computeNowAndNext, occurrencesOnDate } from "@/lib/schedule";
+import { dayLabel, dayLoads, describeLoad, focusThisWeek } from "@/lib/insights";
+import { classesOnDate, computeNowAndNext, occurrencesOnDate, type DatedOccurrence } from "@/lib/schedule";
 import { formatDue, isDueSoon, isOverdue, isoDate, sortTasks, withinNextDays } from "@/lib/tasks";
 import { greeting } from "@/lib/timeOfDay";
 import { useBreakpoint } from "@/lib/useBreakpoint";
@@ -100,6 +104,7 @@ export default function ScheduleHomeScreen() {
   const { desktop } = useBreakpoint();
   const now = useNow();
   const [quick, setQuick] = useState("");
+  const [roomFor, setRoomFor] = useState<DatedOccurrence | null>(null);
 
   const tIso = isoDate(now);
   const nowMin = now.getHours() * 60 + now.getMinutes();
@@ -144,6 +149,11 @@ export default function ScheduleHomeScreen() {
     [generalItems]
   );
 
+  // Heavy days ahead (today included) and where this week's focus time went.
+  const crunches = useMemo(() => dayLoads(courses, tasks, rules, tIso, 7).filter((d) => d.crunch).slice(0, 2), [courses, tasks, rules, tIso]);
+  const focusWeek = useMemo(() => focusThisWeek(tasks, tIso), [tasks, tIso]);
+  const courseMap = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
+
   const holiday = holidaysOn(tIso)[0];
   const openToday = dueToday.length - doneToday;
   const summary = [
@@ -173,11 +183,11 @@ export default function ScheduleHomeScreen() {
       />
       {nextRow || later.length || todaysEvents.length ? (
         <View className="mt-2 px-1">
-          {nextRow ? <ScheduleRow occ={nextRow} label="Next" now={now} emphasis /> : null}
+          {nextRow ? <ScheduleRow occ={nextRow} label="Next" now={now} emphasis onRoomPress={() => setRoomFor(nextRow)} /> : null}
           {later.map((o, i) => (
             <View key={`${o.course.id}-${o.startMin}`}>
               {i > 0 || nextRow ? <Separator className="bg-border/60" /> : null}
-              <ScheduleRow occ={o} label={i === 0 ? "Later" : undefined} now={now} />
+              <ScheduleRow occ={o} label={i === 0 ? "Later" : undefined} now={now} onRoomPress={() => setRoomFor(o)} />
             </View>
           ))}
           {todaysEvents.map((e, i) => (
@@ -248,6 +258,51 @@ export default function ScheduleHomeScreen() {
         <SectionTitle right={<LinkButton label="Calendar" href="/calendar" />}>This week</SectionTitle>
         <WeekStrip courses={courses} tasks={tasks} now={now} rules={rules} />
       </View>
+      {focusWeek.totalSeconds > 0 || focusWeek.warnings.length ? (
+        <View>
+          <SectionTitle
+            right={
+              focusWeek.totalSeconds > 0 ? (
+                <Text className="text-muted-foreground text-[13px] tabular-nums">{formatSpent(focusWeek.totalSeconds)} this week</Text>
+              ) : undefined
+            }
+          >
+            Focus time
+          </SectionTitle>
+          <View className="gap-2.5">
+            {focusWeek.warnings.slice(0, 2).map((w) => {
+              const course = courseMap.get(w.courseId);
+              if (!course) return null;
+              return (
+                <View key={`warn-${w.courseId}`} className="flex-row gap-2">
+                  <Icon as={TriangleAlert} size={14} className="text-warning mt-0.5" />
+                  <Text className="flex-1 text-[13px] leading-[18px]">
+                    {course.code} has {w.deadlines} deadlines left this week but {w.seconds ? `only ${formatSpent(w.seconds)} of` : "no"} focus time.
+                  </Text>
+                </View>
+              );
+            })}
+            {focusWeek.byCourse.map((c) => {
+              const course = c.courseId ? courseMap.get(c.courseId) : undefined;
+              const share = c.seconds / (focusWeek.byCourse[0]?.seconds || 1);
+              return (
+                <View key={c.courseId ?? "none"} className="gap-1">
+                  <View className="flex-row items-baseline justify-between">
+                    <Text className="text-[13px]">{course?.code ?? "No course"}</Text>
+                    <Text className="text-muted-foreground text-[13px] tabular-nums">{formatSpent(c.seconds)}</Text>
+                  </View>
+                  <View className="bg-muted h-1.5 overflow-hidden rounded-full">
+                    <View
+                      className="bg-muted-foreground/40 h-full rounded-full"
+                      style={[{ width: `${Math.max(4, share * 100)}%` }, course ? { backgroundColor: course.color } : null]}
+                    />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
       {recentNotes.length ? (
         <View>
           <SectionTitle right={<LinkButton label="Notes" href="/notes" />}>Recent notes</SectionTitle>
@@ -283,7 +338,7 @@ export default function ScheduleHomeScreen() {
       keyboardShouldPersistTaps="handled"
     >
       <ScreenHeader eyebrow={greeting(now)} title={dateTitle} />
-      <View className="-mt-4 mb-7 flex-row flex-wrap items-center gap-x-3 gap-y-1">
+      <View className={cn("-mt-4 flex-row flex-wrap items-center gap-x-3 gap-y-1", crunches.length ? "mb-3" : "mb-7")}>
         <Text className="text-muted-foreground text-sm">
           {summary.join("  ·  ")}
           {overdue.length ? (
@@ -299,6 +354,26 @@ export default function ScheduleHomeScreen() {
           </View>
         ) : null}
       </View>
+      {crunches.length ? (
+        <View className="mb-7 gap-1.5">
+          {crunches.map((d) => (
+            <Pressable
+              key={d.date}
+              onPress={() => router.navigate("/tasks")}
+              accessibilityRole="link"
+              className="flex-row items-start gap-2 self-start rounded web:transition-opacity web:hover:opacity-80"
+            >
+              <Icon as={TriangleAlert} size={14} className="text-warning mt-[3px]" />
+              <Text className="flex-1 text-sm leading-5">
+                <Text className="text-sm font-semibold">{dayLabel(d.date, tIso)} looks heavy:</Text> {describeLoad(d)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      <GetStarted />
+      <RoomDialog room={roomFor?.meeting.room ?? null} occurrence={roomFor} onClose={() => setRoomFor(null)} />
 
       {desktop ? (
         <View className="flex-row items-start gap-12">

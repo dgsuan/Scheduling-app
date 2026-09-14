@@ -1,15 +1,173 @@
 import { useEffect, useMemo, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import { DatePickerField } from "@/components/DatePickerField";
 import { SettingsRow, SettingsSection, SettingsToggleRow } from "@/components/settings/SettingsSection";
+import { useToast } from "@/components/Toaster";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
-import { useCancellations, useCourses, useScheduleRules, useSettings } from "@/context/store";
+import { useCancellations, useCourses, useGrades, useScheduleRules, useSemester, useSettings } from "@/context/store";
 import { addDaysIso, daysBetween } from "@/lib/dates";
 import { formatShortDate } from "@/lib/calendar";
+import { computeGwa, formatGrade } from "@/lib/grades";
 import { display12h, occurrencesOnDate, relativeDayLabel, termStateOn } from "@/lib/schedule";
+import { cumulativeGwa, termLabel } from "@/lib/semester";
 import { todayIso } from "@/lib/tasks";
+
+function EndSemesterDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { settings } = useSettings();
+  const { courses } = useCourses();
+  const { grades } = useGrades();
+  const { endSemester } = useSemester();
+  const { toast } = useToast();
+  const [label, setLabel] = useState("");
+  const [keepNotes, setKeepNotes] = useState(true);
+
+  useEffect(() => {
+    if (open) {
+      setLabel(termLabel(settings.term, todayIso()));
+      setKeepNotes(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const gwa = computeGwa(courses, grades);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-4 p-5 sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>End this semester?</DialogTitle>
+          <DialogDescription>
+            Your courses and grades are saved under Past semesters, then cleared so you can start the next term fresh.
+          </DialogDescription>
+        </DialogHeader>
+        <View className="gap-1">
+          <Text className="text-muted-foreground text-xs font-medium">Name</Text>
+          <Input value={label} onChangeText={setLabel} maxLength={80} accessibilityLabel="Semester name" />
+        </View>
+        <View className="bg-muted/60 gap-1 rounded-lg px-3 py-2">
+          <Text className="text-sm">
+            {courses.length} course{courses.length === 1 ? "" : "s"}
+            {gwa.gwa != null ? ` · GWA ${formatGrade(gwa.gwa)} over ${gwa.units} units` : " · no grades recorded"}
+          </Text>
+          {gwa.counted.length && !gwa.allFinal ? (
+            <Text className="text-muted-foreground text-xs leading-4">Some grades are estimates. Record final grades first for an exact GWA.</Text>
+          ) : null}
+        </View>
+        <Text className="text-sm leading-5">
+          Cleared: courses, grade books, class cancellations, finished tasks and the term dates. Kept: unfinished tasks, events and notes.
+        </Text>
+        <Pressable
+          onPress={() => setKeepNotes((v) => !v)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: keepNotes }}
+          className="flex-row items-start gap-3"
+        >
+          <View className="pt-0.5" pointerEvents="none">
+            <Checkbox checked={keepNotes} onCheckedChange={setKeepNotes} className="size-5 rounded-md" />
+          </View>
+          <Text className="flex-1 text-sm leading-5">Keep each course&apos;s notes as a folder in General</Text>
+        </Pressable>
+        <View className="flex-row flex-wrap justify-end gap-2">
+          <Button variant="outline" onPress={() => onOpenChange(false)}>
+            <Text>Cancel</Text>
+          </Button>
+          <Button
+            onPress={() => {
+              const archive = endSemester({ label, keepNotes });
+              onOpenChange(false);
+              toast({ message: "Semester ended", description: `${archive.label} is saved under Past semesters.` });
+            }}
+          >
+            <Text>End semester</Text>
+          </Button>
+        </View>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PastSemesters({ last }: { last?: boolean }) {
+  const { archivedTerms } = useSemester();
+  const { updateSettings } = useSettings();
+  const { courses } = useCourses();
+  const { grades } = useGrades();
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  if (!archivedTerms.length) return null;
+  const overall = cumulativeGwa(archivedTerms, { courses, grades });
+
+  return (
+    <SettingsRow
+      label="Past semesters"
+      hint={overall.gwa != null ? `Overall GWA ${formatGrade(overall.gwa)} over ${overall.units} units, including this semester.` : undefined}
+      stacked
+      last={last}
+    >
+      <View className="gap-1">
+        {[...archivedTerms].reverse().map((term) => {
+          const open = openId === term.id;
+          return (
+            <View key={term.id} className="gap-1 py-1">
+              <View className="flex-row flex-wrap items-center gap-2">
+                <Pressable
+                  onPress={() => setOpenId(open ? null : term.id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: open }}
+                  className="flex-1 rounded web:hover:opacity-80"
+                >
+                  <Text className="text-sm">
+                    {term.label}
+                    <Text className="text-muted-foreground text-sm">
+                      {"  "}
+                      {term.gwa != null ? `GWA ${formatGrade(term.gwa)} · ` : ""}
+                      {term.courses.length} course{term.courses.length === 1 ? "" : "s"}
+                    </Text>
+                  </Text>
+                </Pressable>
+                <Button variant="ghost" size="sm" onPress={() => setRemoving(removing === term.id ? null : term.id)}>
+                  <Text className="text-muted-foreground">Remove</Text>
+                </Button>
+              </View>
+              {removing === term.id ? (
+                <View className="flex-row flex-wrap items-center gap-2">
+                  <Text className="text-sm">Remove this record? Its grades stop counting toward your overall GWA.</Text>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onPress={() => {
+                      updateSettings({ archivedTerms: archivedTerms.filter((t) => t.id !== term.id) });
+                      setRemoving(null);
+                    }}
+                  >
+                    <Text>Remove</Text>
+                  </Button>
+                </View>
+              ) : null}
+              {open
+                ? term.courses.map((c, i) => (
+                    <View key={`${c.code}-${i}`} className="flex-row gap-3 pl-3">
+                      <Text className="flex-1 text-[13px]">
+                        {c.code}
+                        {c.section ? ` (${c.section})` : ""}
+                      </Text>
+                      <Text className="text-muted-foreground text-[13px] tabular-nums">
+                        {c.grade != null ? `${formatGrade(c.grade)}${c.isFinal ? "" : " est."}` : "—"} · {c.units} u
+                      </Text>
+                    </View>
+                  ))
+                : null}
+            </View>
+          );
+        })}
+      </View>
+    </SettingsRow>
+  );
+}
 
 // Semester dates, holiday skipping and one-off cancellations — the inputs
 // to every "does this class happen?" decision in the app.
@@ -20,8 +178,10 @@ export function SemesterSection() {
   const { settings, updateSettings } = useSettings();
   const { courses } = useCourses();
   const { cancellations, restoreClass } = useCancellations();
+  const { archivedTerms } = useSemester();
   const rules = useScheduleRules();
   const today = todayIso();
+  const [ending, setEnding] = useState(false);
 
   // Draft dates: only saved once both are set and in order.
   const [start, setStart] = useState(settings.term?.start);
@@ -141,7 +301,6 @@ export function SemesterSection() {
             : "To cancel a single class, open the Calendar, click the day, then Cancel next to the class."
         }
         stacked
-        last
       >
         {upcoming.length ? (
           <View>
@@ -173,6 +332,18 @@ export function SemesterSection() {
           </Text>
         ) : null}
       </SettingsRow>
+
+      <SettingsRow
+        label="End semester"
+        hint="Save this term's courses and grades, then clear them for the next one."
+        last={!archivedTerms.length}
+      >
+        <Button variant="outline" size="sm" onPress={() => setEnding(true)} disabled={!courses.length}>
+          <Text>End semester…</Text>
+        </Button>
+      </SettingsRow>
+      <PastSemesters last />
+      <EndSemesterDialog open={ending} onOpenChange={setEnding} />
     </SettingsSection>
   );
 }

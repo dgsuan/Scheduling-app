@@ -277,9 +277,10 @@ try {
     file ?? "no file"
   );
 
-  const bad = path.join(FIXTURES, "bad.json");
+  // Generated each run, so they go to the (git-ignored) output folder, not fixtures.
+  const bad = path.join(OUT, "bad.json");
   fs.writeFileSync(bad, "{ this is not json");
-  const invalid = path.join(FIXTURES, "invalid.json");
+  const invalid = path.join(OUT, "invalid.json");
   const edited = JSON.parse(JSON.stringify(exported));
   edited.data.tasks[0].title = 5;
   edited.data.courses = [{ id: "c", code: "X", color: "#000", meetings: [{ days: [9], start: "25:00", end: "10:00" }] }];

@@ -16,7 +16,7 @@ import { Text } from "@/components/ui/text";
 import { MIN_PASSWORD_LENGTH, useAuth } from "@/context/auth";
 import { BACKUP_KEYS } from "@/lib/backup";
 import { deleteAccount } from "@/lib/cloud";
-import { clearSyncMeta, relativeTime, requestSyncNow, useSyncState } from "@/lib/sync";
+import { clearSyncMeta, loadSyncLog, relativeTime, requestSyncNow, useSyncState, type SyncLogEntry } from "@/lib/sync";
 
 // Sign in / create an account, and see sync status.
 
@@ -188,7 +188,44 @@ function SetNewPasswordDialog() {
   );
 }
 
-function SyncStatus() {
+/** Local edits that sync replaced with a newer version from another device. */
+function SyncHistory({ userId }: { userId: string }) {
+  const sync = useSyncState();
+  const [entries, setEntries] = useState<SyncLogEntry[]>([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadSyncLog(userId).then((list) => !cancelled && setEntries(list));
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, sync.lastSyncedAt]);
+  if (!entries.length) return null;
+  return (
+    <View className="gap-1.5">
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        className="self-start rounded web:hover:opacity-80"
+      >
+        <Text className="text-primary text-[13px]">
+          {open ? "Hide" : "Show"} {entries.length} change{entries.length === 1 ? "" : "s"} replaced by another device
+        </Text>
+      </Pressable>
+      {open
+        ? entries.map((e, i) => (
+            <Text key={`${e.at}-${i}`} className="text-muted-foreground text-[13px] leading-[18px]">
+              {relativeTime(e.at)} · {e.kind}
+              {e.title ? ` “${e.title}”` : ""} — {e.removed ? "deleted on another device" : "kept the newer edit from another device"}
+            </Text>
+          ))
+        : null}
+    </View>
+  );
+}
+
+function SyncStatus({ userId }: { userId: string }) {
   const sync = useSyncState();
   const [, tick] = useState(0);
   useEffect(() => {
@@ -217,12 +254,20 @@ function SyncStatus() {
           <Text className="text-muted-foreground">Sync now</Text>
         </Button>
       </View>
+      {sync.waiting ? (
+        <Text className="text-muted-foreground text-[13px] leading-[18px]">
+          {sync.phase === "error"
+            ? "Your latest changes are saved on this device and will sync when it can reach your account."
+            : "Uploading your latest changes…"}
+        </Text>
+      ) : null}
       {sync.notice ? (
         <View className="flex-row gap-2">
           <Icon as={Info} size={14} className="text-muted-foreground mt-0.5" />
           <Text className="text-muted-foreground flex-1 text-[13px] leading-[18px]">{sync.notice}</Text>
         </View>
       ) : null}
+      <SyncHistory userId={userId} />
     </View>
   );
 }
@@ -353,7 +398,7 @@ export function AccountSection() {
             </Button>
           </SettingsRow>
           <SettingsRow label="Sync" stacked>
-            <SyncStatus />
+            <SyncStatus userId={auth.user.id} />
           </SettingsRow>
           <SettingsRow label="Delete account" hint="Permanently removes your account and everything synced to it." last>
             <Button variant="outline" size="sm" onPress={() => setDeleting(true)}>

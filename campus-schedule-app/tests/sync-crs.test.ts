@@ -115,7 +115,10 @@ test("incremental: conflicts go to the newer side", () => {
   const a = T("a", "A");
   const base = baseFromItems([a]);
   const input = { local: [T("a", "local")], base, remote: [R(T("a", "remote"))], fullSnapshot: false };
-  assert.deepEqual(keys(planSync({ ...input, preferLocal: never }).apply), ["task/a"]);
+  const remoteWins = planSync({ ...input, preferLocal: never });
+  assert.deepEqual(keys(remoteWins.apply), ["task/a"]);
+  assert.equal(remoteWins.overwritten.length, 1, "the lost local edit is reported");
+  assert.equal(remoteWins.overwritten[0].local?.data && (remoteWins.overwritten[0].local.data as any).title, "local");
   const localWins = planSync({ ...input, preferLocal: always });
   assert.deepEqual(keys(localWins.push), ["task/a"]);
   assert.equal(localWins.apply.length, 0);

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Platform } from "react-native";
 
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
+import { OcrIndexer } from "@/components/OcrIndexer";
 import { ReminderEngine } from "@/components/ReminderEngine";
 import { SyncEngine } from "@/components/SyncEngine";
 import { FocusBar } from "@/context/focus";
@@ -29,6 +30,7 @@ export function AppServices() {
     <>
       <ReminderEngine />
       <SyncEngine />
+      <OcrIndexer />
       <StorageErrorWatcher />
       <KeyboardShortcuts />
       <FocusBar />

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 
 import { CodeBox, SignInFirst } from "@/components/courses/CourseSharing";
+import { FreeTimesPanel, PostSocial, PublicPagePanel, SharedNotesPanel } from "@/components/sections/SectionExtras";
 import { DueDateButton } from "@/components/DueDateButton";
 import { TimePickerField } from "@/components/TimePickerField";
 import { useToast } from "@/components/Toaster";
@@ -347,6 +348,7 @@ function PostRow({
   onDelete,
   onCancel,
   first,
+  children,
 }: {
   post: SectionPost;
   author: string;
@@ -357,6 +359,7 @@ function PostRow({
   onDelete: () => void;
   onCancel: () => void;
   first: boolean;
+  children?: React.ReactNode;
 }) {
   return (
     <View className={cn("gap-2 px-4 py-3", !first && "border-border/60 border-t")}>
@@ -378,6 +381,7 @@ function PostRow({
       {confirming ? (
         <InlineConfirm text="Delete this deadline for everyone in the section?" label="Delete" busy={busy} onConfirm={onDelete} onCancel={onCancel} />
       ) : null}
+      {children}
     </View>
   );
 }
@@ -450,7 +454,9 @@ function SectionDetail({ id, onBack }: { id: string; onBack: () => void }) {
         onAskDelete={() => setConfirm(`post:${p.id}`)}
         onCancel={() => setConfirm(null)}
         onDelete={() => act(() => deletePost(p.id))}
-      />
+      >
+        <PostSocial post={p} nameOf={nameOf} canModerate={isOwner} />
+      </PostRow>
     ));
 
   return (
@@ -514,6 +520,10 @@ function SectionDetail({ id, onBack }: { id: string; onBack: () => void }) {
         ) : null}
         {showPast && past.length ? <View className="border-border rounded-xl border opacity-80">{renderPosts(past)}</View> : null}
       </View>
+
+      <FreeTimesPanel sectionId={id} />
+      <SharedNotesPanel sectionId={id} isOwner={isOwner} nameOf={nameOf} />
+      <PublicPagePanel section={section} isOwner={isOwner} />
 
       <View className="gap-2">
         <Text className="px-1 text-[15px] font-semibold">Members · {members.length}</Text>

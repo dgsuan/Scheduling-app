@@ -25,6 +25,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useCommandPalette } from "@/components/CommandPalette";
+import { SyncBadge } from "@/components/SyncBadge";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
 import { ThemeToggle, useTimeOfDay } from "@/context/theme";
@@ -171,6 +172,7 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
           {items}
         </View>
         <View className="flex-1" />
+        <SyncBadge />
         <SidebarFooter />
       </View>
     );

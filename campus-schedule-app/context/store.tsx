@@ -10,10 +10,11 @@ import {
 } from "react";
 
 import { colors } from "@/constants/theme";
-import { addDaysIso, daysBetween } from "@/lib/dates";
+import { addDaysIso, daysBetween, isoDate } from "@/lib/dates";
 import type { ImportedEvent, ImportedTask } from "@/lib/ics";
 import { nextRepeatDate, repeatStop } from "@/lib/recurrence";
 import type { ScheduleRules } from "@/lib/schedule";
+import { buildArchive, type ArchivedTerm } from "@/lib/semester";
 import { emitLocalWrite } from "@/lib/syncEvents";
 import { applyToSlice, type RemoteItem } from "@/lib/syncItems";
 
@@ -80,6 +81,10 @@ export type CanvasItem =
       originalUri?: string;
       originalWidth?: number;
       originalHeight?: number;
+      /** Text recognized in the image on-device, for search. */
+      ocrText?: string;
+      /** Fingerprint of the image `ocrText` was read from (re-read when it changes). */
+      ocrOf?: string;
     })
   | (CanvasBase & {
       kind: "document";
@@ -154,6 +159,10 @@ export type Task = {
   subtasks?: Subtask[];
   /** Accumulated focus-timer time. */
   timeSpentSec?: number;
+  /** Focus seconds per day ("YYYY-MM-DD" → seconds), for weekly stats. */
+  focusLog?: Record<string, number>;
+  /** Notes canvas (General, a course, or a folder) this task works from. */
+  noteRef?: { canvasId: string };
   source?: ImportSource;
 };
 
@@ -202,6 +211,12 @@ export type PlannerSettings = {
   reminders: ReminderSettings;
   /** Class-section deadlines the user deleted, so refreshes don't bring them back. */
   dismissedSectionPosts?: string[];
+  /** Semesters ended with "End semester": courses and grades, kept for GWA. */
+  archivedTerms?: ArchivedTerm[];
+  /** The Home "Get set up" checklist was hidden. */
+  onboardingDismissed?: boolean;
+  /** Recognize text in note images so search can find it. */
+  imageTextSearch?: boolean;
 };
 
 export const DEFAULT_SETTINGS: PlannerSettings = {
@@ -306,6 +321,8 @@ type StoreShape = {
   applySliceChanges: (name: StoreSliceName, rows: RemoteItem[]) => void;
   /** Mirror class-section deadlines (all of them, from every joined section) into tasks. */
   applySectionPosts: (posts: SectionPostTask[]) => void;
+  /** Archive this term's courses and grades, then clear them for a fresh start. */
+  endSemester: (opts: { label: string; keepNotes: boolean }) => ArchivedTerm;
 };
 
 export const STORAGE_KEYS = {
@@ -411,6 +428,7 @@ function rollSeries(task: Task, merged: Task, settings: PlannerSettings, logComp
     start: merged.start ? addDaysIso(next, -span) : undefined,
     subtasks: merged.subtasks?.map((s) => ({ ...s, done: false })),
     timeSpentSec: undefined,
+    focusLog: undefined,
   };
   if (!logCompletion) return [series];
   const copy: Task = {
@@ -724,8 +742,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   tasksRef.current = tasks;
   const addTimeSpent = useCallback((taskId: string, seconds: number) => {
     if (seconds <= 0) return;
+    const day = isoDate(new Date());
     setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, timeSpentSec: Math.round((t.timeSpentSec ?? 0) + seconds) } : t))
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        const focusLog = { ...(t.focusLog ?? {}) };
+        focusLog[day] = Math.round((focusLog[day] ?? 0) + seconds);
+        // Keep about four months of days.
+        const days = Object.keys(focusLog).sort();
+        for (const old of days.slice(0, Math.max(0, days.length - 120))) delete focusLog[old];
+        return { ...t, timeSpentSec: Math.round((t.timeSpentSec ?? 0) + seconds), focusLog };
+      })
     );
   }, []);
   const clearCompletedTasks = useCallback(() => {
@@ -899,6 +926,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const endSemester = useCallback(({ label, keepNotes }: { label: string; keepNotes: boolean }) => {
+    const s = slicesRef.current;
+    const archive = buildArchive({
+      id: uid("term"),
+      label,
+      term: s.settings.term,
+      courses: s.courses,
+      grades: s.grades,
+      tasks: s.tasks,
+      archivedAt: Date.now(),
+    });
+    const courseIds = new Set(s.courses.map((c) => c.id));
+    setCanvases((prev) => {
+      const next = { ...prev };
+      for (const course of s.courses) {
+        const data = next[course.id];
+        delete next[course.id];
+        if (!keepNotes || !data || (!data.items.length && !data.drawings.length)) continue;
+        // The course notebook becomes a folder in General, contents untouched.
+        const folderId = uid("item");
+        next[folderId] = data;
+        const general = next[GENERAL_CANVAS] ?? EMPTY_CANVAS;
+        const step = general.items.length % 6;
+        next[GENERAL_CANVAS] = {
+          ...general,
+          items: [...general.items, { id: folderId, kind: "folder", name: `${course.code} · ${archive.label}`.slice(0, 80), x: 40 + step * 18, y: 40 + step * 18 }],
+        };
+      }
+      return next;
+    });
+    setCourses([]);
+    setGrades({});
+    setCancellations([]);
+    setTasks((prev) =>
+      prev.filter((t) => !t.done).map((t) => (t.courseId && courseIds.has(t.courseId) ? { ...t, courseId: undefined } : t))
+    );
+    setSettings((prev) =>
+      normalizeSettings({ ...prev, term: undefined, archivedTerms: [...(prev.archivedTerms ?? []), archive].slice(-20) })
+    );
+    return archive;
+  }, []);
+
   const value = useMemo<StoreShape>(
     () => ({
       ready,
@@ -943,6 +1012,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       snapshot,
       applySliceChanges,
       applySectionPosts,
+      endSemester,
     }),
     [
       ready,
@@ -987,6 +1057,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       snapshot,
       applySliceChanges,
       applySectionPosts,
+      endSemester,
     ]
   );
 
@@ -1028,6 +1099,12 @@ export function useCanvas(canvasId: string) {
 /** Every canvas (for search and for resolving a note's folder path). */
 export function useAllCanvases() {
   return useStore().canvases;
+}
+
+/** Edit an item on any canvas by id (for background work like OCR). */
+export function useCanvasEditor() {
+  const { updateItem } = useStore();
+  return { updateItem };
 }
 
 export function useTasks() {
@@ -1085,6 +1162,11 @@ export function useGrades() {
 export function useStoreSync() {
   const { ready, snapshot, applySliceChanges } = useStore();
   return { ready, snapshot, applySliceChanges };
+}
+
+export function useSemester() {
+  const { settings, endSemester } = useStore();
+  return { archivedTerms: settings.archivedTerms ?? [], endSemester };
 }
 
 export function useSectionTasks() {

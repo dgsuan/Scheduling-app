@@ -2,6 +2,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 
+import { disablePush } from "@/lib/push";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
 // Email + password accounts via Supabase Auth. Optional: without keys (or
@@ -97,6 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Background reminders belong to the account; stop them on this device first.
+    await disablePush().catch(() => {});
     await supabase?.auth.signOut();
     setRecovering(false);
   }, []);

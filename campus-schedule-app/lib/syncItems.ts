@@ -245,6 +245,8 @@ export type PlanOutput = {
   push: PushItem[];
   /** Apply these locally (including deletions). */
   apply: RemoteItem[];
+  /** Local edits that lost to a newer change from another device. */
+  overwritten: { local: SyncItem | null; remote: RemoteItem }[];
   /** Base after applying; pushed items are recorded once their upload succeeds. */
   base: Record<string, string>;
 };
@@ -254,6 +256,7 @@ export function planSync({ local, base, remote, fullSnapshot, preferLocal }: Pla
   const nextBase: Record<string, string> = { ...base };
   const push: PushItem[] = [];
   const apply: RemoteItem[] = [];
+  const overwritten: PlanOutput["overwritten"] = [];
   const seen = new Set<string>();
   const tombstone = (collection: ItemCollection, id: string): PushItem => ({ collection, id, parent: null, data: {}, deleted: true });
 
@@ -282,6 +285,7 @@ export function planSync({ local, base, remote, fullSnapshot, preferLocal }: Pla
       push.push(li ? { ...li, deleted: false } : tombstone(r.collection, r.id));
       continue;
     }
+    if (localChanged) overwritten.push({ local: li ?? null, remote: r });
     if (li || !r.deleted) apply.push(r);
     if (rh) nextBase[key] = rh;
     else delete nextBase[key];
@@ -311,7 +315,26 @@ export function planSync({ local, base, remote, fullSnapshot, preferLocal }: Pla
     push.push(tombstone(collection, id));
   }
 
-  return { push, apply, base: nextBase };
+  return { push, apply, overwritten, base: nextBase };
+}
+
+const KIND_LABEL: Record<ItemCollection, string> = {
+  course: "Course",
+  task: "Task",
+  event: "Event",
+  cancellation: "Class cancellation",
+  grade: "Grades",
+  note_item: "Note",
+  drawing: "Drawing",
+  setting: "Settings",
+};
+
+/** A human description of an item for the sync history ("Task", "Lab report 2"). */
+export function describeSyncItem(item: Pick<SyncItem, "collection" | "data">): { kind: string; title: string | null } {
+  const d = (item.data && typeof item.data === "object" ? item.data : {}) as Record<string, unknown>;
+  const text = typeof d.text === "string" ? d.text.split("\n")[0] : undefined;
+  const title = [d.title, d.code, d.name, text].find((v): v is string => typeof v === "string" && v.trim().length > 0);
+  return { kind: KIND_LABEL[item.collection] ?? "Item", title: title ? title.trim().slice(0, 80) : null };
 }
 
 /** Base that makes a full-snapshot plan behave as "replace this device with the account". */

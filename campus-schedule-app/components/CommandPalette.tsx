@@ -6,6 +6,7 @@ import {
   CircleCheck,
   Download,
   Folder,
+  Image as ImageIcon,
   ListChecks,
   Moon,
   NotebookPen,
@@ -133,6 +134,8 @@ function PaletteBody({ close }: { close: () => void }) {
         if (it.kind === "todo")
           return [{ id: `n-${it.id}`, group: "Notes", title: it.title || "To-do list", keywords: it.entries.map((e) => e.text).join(" "), subtitle: `To-do · ${it.entries.length} item${it.entries.length === 1 ? "" : "s"}`, icon: ListChecks, run: open }];
         if (it.kind === "folder") return [{ id: `n-${it.id}`, group: "Notes", title: it.name || "Folder", subtitle: "Folder", icon: Folder, run: open }];
+        if (it.kind === "image" && it.ocrText)
+          return [{ id: `n-${it.id}`, group: "Notes", title: it.ocrText.split("\n")[0].slice(0, 80), keywords: it.ocrText, subtitle: "Text in an image", icon: ImageIcon, run: open }];
         return [];
       })
     );

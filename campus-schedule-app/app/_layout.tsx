@@ -46,6 +46,8 @@ function ThemedShell() {
       <NavThemeProvider value={navTheme}>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "transparent" } }}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="planner" />
+          <Stack.Screen name="deadlines" />
         </Stack>
       </NavThemeProvider>
       <AppServices />

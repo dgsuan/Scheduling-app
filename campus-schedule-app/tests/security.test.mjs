@@ -126,6 +126,53 @@ try {
   check("Banned member loses access", refused(await B.from("section_posts").select("id").eq("section_id", sectionId)));
   check("Banned member can't rejoin", (await B.rpc("join_section", { p_code: invite, p_display_name: "Tester B" })).data === null);
 
+  // --- 0003: check-offs, comments, free times, shared notes, public page --------------
+  // Skipped (reported, not failed) when migration 0003 hasn't been run.
+  const has0003 = !(await A.from("section_post_marks").select("post_id").limit(1)).error;
+  if (!has0003) {
+    results.push("SKIP  0003 checks — run supabase/migrations/0003_sections_social.sql to test them");
+  } else {
+    const section2 = await A.rpc("create_section", { p_name: `Security social ${stamp}`, p_course_code: "", p_display_name: "Tester A" });
+    const sid2 = section2.data?.id;
+    if (sid2) cleanup.push(() => A.from("sections").delete().eq("id", sid2));
+    const post2 = await A.from("section_posts").insert({ section_id: sid2, author_id: aId, title: "Essay", due: "2026-12-05" }).select("id");
+    const pid = post2.data?.[0]?.id;
+
+    check("Outsiders can't check off a deadline", !!(await B.from("section_post_marks").insert({ post_id: pid, section_id: sid2, user_id: bId })).error);
+    check("Outsiders can't comment", !!(await B.from("section_post_comments").insert({ post_id: pid, section_id: sid2, author_id: bId, body: "spam" })).error);
+    check("Outsiders can't share free times there", !!(await B.from("section_busy_times").insert({ section_id: sid2, user_id: bId, busy: [] })).error);
+    check("Outsiders can't read shared notes", refused(await B.from("section_shared_notes").select("id").eq("section_id", sid2)));
+
+    await B.rpc("join_section", { p_code: section2.data?.invite_code, p_display_name: "Tester B" });
+    const markAs = await B.from("section_post_marks").insert({ post_id: pid, section_id: sid2, user_id: aId }).select("user_id");
+    check("Can't check off as someone else", !!markAs.error || markAs.data?.[0]?.user_id === bId, JSON.stringify(markAs.data ?? markAs.error?.message));
+    await B.from("section_post_marks").delete().eq("post_id", pid).eq("user_id", bId);
+    const aMark = await A.from("section_post_marks").insert({ post_id: pid, user_id: aId });
+    check("Owner can check off", !aMark.error, aMark.error?.message);
+    check("Can't undo someone else's check-off", refused(await B.from("section_post_marks").delete().eq("post_id", pid).eq("user_id", aId).select("user_id")));
+    const forgedComment = await B.from("section_post_comments").insert({ post_id: pid, author_id: aId, body: "forged" }).select("author_id");
+    check("Comments always carry the real author", !!forgedComment.error || forgedComment.data?.[0]?.author_id === bId);
+    check("Overlong comments are rejected", !!(await B.from("section_post_comments").insert({ post_id: pid, author_id: bId, body: "x".repeat(400) })).error);
+    const aComment = await A.from("section_post_comments").insert({ post_id: pid, author_id: aId, body: "Due Friday" }).select("id");
+    check("Members can't delete others' comments", refused(await B.from("section_post_comments").delete().eq("id", aComment.data?.[0]?.id).select("id")));
+    const busy = await B.from("section_busy_times").upsert({ section_id: sid2, user_id: bId, busy: [{ d: 1, s: 480, e: 600, course: "LEAK" }, { d: 9, s: 0, e: 1 }] }).select("busy");
+    check("Free times keep only times (extra fields and bad blocks dropped)", !busy.error && JSON.stringify(busy.data?.[0]?.busy) === JSON.stringify([{ d: 1, e: 600, s: 480 }]), JSON.stringify(busy.data ?? busy.error?.message));
+    check("Can't overwrite someone else's free times", refused(await A.from("section_busy_times").update({ busy: [] }).eq("section_id", sid2).eq("user_id", bId).select("user_id")));
+    const note = await B.from("section_shared_notes").insert({ section_id: sid2, owner_id: bId, title: "Reviewer", notes: [{ kind: "text", text: "hi" }] }).select("id");
+    check("Members can share notes", !note.error, note.error?.message);
+    check("Members can't edit others' shared notes", refused(await A.from("section_shared_notes").update({ title: "edited" }).eq("id", note.data?.[0]?.id).select("id")));
+    check("Oversized shared notes are rejected", !!(await B.from("section_shared_notes").insert({ section_id: sid2, owner_id: bId, title: "Big", notes: [{ kind: "text", text: "x".repeat(300000) }] })).error);
+    check("Members can't turn on the public page", !!(await B.rpc("set_section_public", { p_section: sid2, p_enabled: true })).error);
+    const pub = await A.rpc("set_section_public", { p_section: sid2, p_enabled: true });
+    check("Owner can turn on the public page", !pub.error && /^[A-Z2-9]{10}$/.test(pub.data ?? ""), pub.error?.message);
+    const seen = await anon.rpc("get_public_section", { p_code: pub.data });
+    check("Public page works signed out", seen.data?.name?.startsWith("Security social") && seen.data?.posts?.length === 1);
+    check("Public page shows no notes, members or codes", !/invite|Tester|display_name|note/i.test(JSON.stringify(seen.data)));
+    check("Public page can't be found with the invite code", (await anon.rpc("get_public_section", { p_code: section2.data?.invite_code })).data === null);
+    await A.rpc("remove_section_member", { p_section: sid2, p_user: bId, p_ban: false });
+    check("Leaving removes your free times", refused(await A.from("section_busy_times").select("user_id").eq("section_id", sid2).eq("user_id", bId)));
+  }
+
   // --- Storage -----------------------------------------------------------------------
   const txt = new TextEncoder().encode("hello");
   const ownFile = `${aId}/sec-test-${stamp}.txt`;
@@ -143,5 +190,5 @@ try {
   for (const fn of cleanup.reverse()) await Promise.resolve(fn()).catch(() => {});
   await Promise.all([A.auth.signOut(), B.auth.signOut()]).catch(() => {});
   console.log(results.join("\n"));
-  if (results.some((r) => !r.startsWith("PASS"))) process.exitCode = 1;
+  if (results.some((r) => !r.startsWith("PASS") && !r.startsWith("SKIP"))) process.exitCode = 1;
 }

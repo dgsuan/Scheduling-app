@@ -4,6 +4,7 @@ import { AppState, Platform } from "react-native";
 import { useToast } from "@/components/Toaster";
 import { useCourses, useScheduleRules, useSettings, useTasks } from "@/context/store";
 import { showSystemNotification } from "@/lib/notify";
+import { pushActiveHere } from "@/lib/push";
 import { dueReminders } from "@/lib/reminders";
 
 // Fires class and task reminders while the app is open. One interval, only
@@ -67,6 +68,13 @@ export function ReminderEngine() {
         if (fired[reminder.id]) continue;
         fired[reminder.id] = Date.now();
         changed = true;
+        if (pushActiveHere()) {
+          // The server sends the system notification; only show it in-app while the app is in view.
+          if (Platform.OS !== "web" || document.visibilityState === "visible") {
+            show({ id: reminder.id, message: reminder.title, description: reminder.body, duration: 15_000 });
+          }
+          continue;
+        }
         showSystemNotification(reminder.title, reminder.body, reminder.id, reminder.kind === "task" ? "tasks" : "").then(
           (shown) => {
             if (!shown) show({ id: reminder.id, message: reminder.title, description: reminder.body, duration: 15_000 });

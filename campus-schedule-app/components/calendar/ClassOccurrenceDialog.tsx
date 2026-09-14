@@ -1,5 +1,9 @@
-import { Clock, MapPin } from "lucide-react-native";
+import { Clock, Footprints, MapPin } from "lucide-react-native";
 import { View } from "react-native";
+
+import { transferText } from "@/components/schedule/RoomDialog";
+import { useCourses, useScheduleRules } from "@/context/store";
+import { transferInto } from "@/lib/rooms";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +32,9 @@ export function ClassOccurrenceDialog({
   onCancelClass: (occ: DatedOccurrence) => void;
   onRestoreClass: (occ: DatedOccurrence) => void;
 }) {
+  const { courses } = useCourses();
+  const rules = useScheduleRules();
+  const transfer = occ && occ.status === "scheduled" ? transferInto(courses, occ, rules) : null;
   return (
     <Dialog open={!!occ} onOpenChange={(o) => !o && onClose()}>
       {occ ? (
@@ -51,6 +58,12 @@ export function ClassOccurrenceDialog({
               <View className="flex-row items-center gap-2">
                 <Icon as={MapPin} size={14} className="text-muted-foreground" />
                 <Text className="text-sm">{occ.meeting.room}</Text>
+              </View>
+            ) : null}
+            {transfer ? (
+              <View className="flex-row items-start gap-2">
+                <Icon as={Footprints} size={14} className="text-muted-foreground mt-0.5" />
+                <Text className="flex-1 text-sm leading-5">{transferText(transfer)}</Text>
               </View>
             ) : null}
             {occ.status === "cancelled" ? (

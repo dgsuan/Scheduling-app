@@ -20,12 +20,15 @@ export type SyncState = {
   error: string | null;
   /** Something synced with caveats (e.g. a file too large to upload). */
   notice: string | null;
+  /** Local changes saved on this device that haven't reached the account yet. */
+  waiting: boolean;
 };
 
-let state: SyncState = { phase: "off", lastSyncedAt: null, error: null, notice: null };
+let state: SyncState = { phase: "off", lastSyncedAt: null, error: null, notice: null, waiting: false };
 const subscribers = new Set<() => void>();
 
 export function setSyncState(patch: Partial<SyncState>) {
+  if ((Object.keys(patch) as (keyof SyncState)[]).every((k) => state[k] === patch[k])) return;
   state = { ...state, ...patch };
   subscribers.forEach((fn) => fn());
 }
@@ -96,7 +99,31 @@ export async function saveSyncMeta(userId: string, meta: SyncMetaV2) {
 }
 
 export async function clearSyncMeta(userId: string) {
-  await AsyncStorage.multiRemove([metaKey(userId), metaV2Key(userId)]).catch(() => {});
+  await AsyncStorage.multiRemove([metaKey(userId), metaV2Key(userId), logKey(userId)]).catch(() => {});
+}
+
+// --- Sync history --------------------------------------------------------------
+
+/** A local edit that was replaced by a newer change from another device. */
+export type SyncLogEntry = { at: number; kind: string; title: string | null; removed: boolean };
+
+const logKey = (userId: string) => `campus-schedule-cache:sync-log:${userId}`;
+const LOG_LIMIT = 30;
+
+export async function loadSyncLog(userId: string): Promise<SyncLogEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(logKey(userId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function appendSyncLog(userId: string, entries: SyncLogEntry[]) {
+  if (!entries.length) return;
+  const next = [...entries, ...(await loadSyncLog(userId))].slice(0, LOG_LIMIT);
+  await AsyncStorage.setItem(logKey(userId), JSON.stringify(next)).catch(() => {});
 }
 
 /** Whole-slice bookkeeping from before per-item sync; read once to migrate. */

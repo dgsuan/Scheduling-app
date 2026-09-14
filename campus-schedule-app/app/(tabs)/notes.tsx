@@ -817,7 +817,8 @@ export default function NotesScreen() {
     setActive(cursor === GENERAL_CANVAS || courses.some((c) => c.id === cursor) ? cursor : GENERAL_CANVAS);
     setFolderStack(path);
     setFocusItem(params.item ?? null);
-    router.setParams({ canvas: undefined, item: undefined });
+    // Deferred: on a cold load from a link the root navigator isn't mounted yet.
+    setTimeout(() => router.setParams({ canvas: undefined, item: undefined }), 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.canvas, params.item]);
 

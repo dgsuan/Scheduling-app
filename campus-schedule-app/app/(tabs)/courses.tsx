@@ -425,11 +425,16 @@ export default function CoursesScreen() {
           title="Courses"
           subtitle="The classes you're enrolled in. Schedule and Calendar read from this list."
           right={
-            isSupabaseConfigured ? (
-              <Button variant="ghost" size="sm" onPress={() => setAddShared({})}>
-                <UiText className="text-muted-foreground">Add shared course</UiText>
+            <>
+              <Button variant="ghost" size="sm" onPress={() => router.navigate("/planner")}>
+                <UiText className="text-muted-foreground">Plan enlistment</UiText>
               </Button>
-            ) : undefined
+              {isSupabaseConfigured ? (
+                <Button variant="ghost" size="sm" onPress={() => setAddShared({})}>
+                  <UiText className="text-muted-foreground">Add shared course</UiText>
+                </Button>
+              ) : null}
+            </>
           }
         />
 

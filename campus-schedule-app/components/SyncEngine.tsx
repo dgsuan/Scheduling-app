@@ -29,6 +29,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import {
   SLICES,
+  appendSyncLog,
   getDeviceId,
   hasMeaningfulData,
   hashString,
@@ -44,6 +45,7 @@ import {
   applyToSlice,
   baseFromItems,
   baseFromRemote,
+  describeSyncItem,
   itemHash,
   itemKey,
   planSync,
@@ -122,7 +124,7 @@ export function SyncEngine() {
 
   useEffect(() => {
     if (!supabase || !userId || !ready) {
-      setSyncState({ phase: "off", error: null, notice: null });
+      setSyncState({ phase: "off", error: null, notice: null, waiting: false });
       return;
     }
     const db = supabase;
@@ -373,6 +375,14 @@ export function SyncEngine() {
       });
       await applyLocally(plan.apply, files);
       if (disposed) return;
+      // Remember local edits that lost to a newer change elsewhere, for Settings → Sync.
+      await appendSyncLog(
+        uid,
+        plan.overwritten.map(({ local, remote: r }) => {
+          const described = describeSyncItem(local ?? r);
+          return { at: Date.now(), kind: described.kind, title: described.title, removed: r.deleted };
+        })
+      );
       m.base = plan.base;
       m.cursor = maxUpdated(remote, m.cursor);
       await saveSyncMeta(uid, m);
@@ -431,6 +441,7 @@ export function SyncEngine() {
         pending.clear();
         try {
           await pushLocal(names);
+          if (!pending.size) setSyncState({ waiting: false });
         } catch (e) {
           names.forEach((n) => pending.add(n));
           fail(e);
@@ -442,6 +453,7 @@ export function SyncEngine() {
       if (!name) return;
       if (meta && (suppressUntil[name] ?? 0) < Date.now()) meta.localChangedAt[name] = Date.now();
       pending.add(name);
+      setSyncState({ waiting: true });
       clearTimeout(localTimer);
       localTimer = setTimeout(flush, UPLOAD_DEBOUNCE_MS);
     });
@@ -451,6 +463,11 @@ export function SyncEngine() {
         if (disposed || !meta) return;
         try {
           await (meta.firstSyncDone ? reconcile() : firstSync());
+          // A full sync uploads every local change, including ones still queued.
+          if (meta.firstSyncDone) {
+            pending.clear();
+            setSyncState({ waiting: false });
+          }
         } catch (e) {
           fail(e);
         }

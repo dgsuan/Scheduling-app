@@ -12,6 +12,35 @@ query** (paste → Run). They're safe to re-run.
 | --- | --- |
 | `0001_user_data.sql` | The first, whole-slice sync table (now read-only; read once to migrate). |
 | `0002_items_sharing_safety.sql` | Per-item sync, file storage, course sharing, class sections, account deletion, and every abuse limit below. |
+| `0003_sections_social.sql` | Section check-offs and comments, shared free times, read-only shared notes, the public deadlines page. |
+| `0004_push_and_feeds.sql` | Background reminders (web push) and calendar links kept in sync by the server. |
+
+## Background reminders & calendar links (optional)
+
+These two run on Supabase Edge Functions on a schedule. Everything else works
+without them. You'll need Node and a terminal in `campus-schedule-app`.
+
+1. Run `migrations/0004_push_and_feeds.sql` (above).
+2. Make a key pair for push: `npx web-push generate-vapid-keys`. Keep the
+   private key to yourself; it only ever goes into Supabase secrets.
+3. Log in and link the project (once):
+   `npx supabase login`, then `npx supabase link --project-ref YOUR-PROJECT-REF`.
+4. Make up a long random `CRON_SECRET` (e.g. `node -e "console.log(crypto.randomUUID()+crypto.randomUUID())"`), then:
+   `npx supabase secrets set CRON_SECRET=… VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=… VAPID_SUBJECT=mailto:you@example.com`
+5. Deploy both functions: `npm run functions:deploy`.
+6. Open `setup/schedule_jobs.sql`, put in your project ref and the same
+   `CRON_SECRET`, and run it in the SQL Editor (don't commit your values).
+7. Add the **public** VAPID key as the GitHub repo variable
+   `EXPO_PUBLIC_VAPID_PUBLIC_KEY` (and in `.env.local`), then redeploy the site.
+
+Then: Settings → Reminders → "Remind me when the app is closed", and
+Import → "Keep a calendar link in sync".
+
+What protects this: the functions refuse any call without the secret; push
+goes only to real browser push services; calendar links must be https,
+can't point at private or internal addresses (checked on every redirect),
+and are capped at 2 MB and 10 seconds; each person has at most 10 devices and
+3 links; the "already sent" list isn't readable by users.
 
 ## What the database enforces
 

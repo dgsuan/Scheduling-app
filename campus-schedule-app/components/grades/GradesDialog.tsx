@@ -17,6 +17,7 @@ import {
   emptyGrades,
   formatGrade,
 } from "@/lib/grades";
+import { defaultTarget, gradeTargets } from "@/lib/insights";
 import { cn } from "@/lib/utils";
 
 // Per-course grade book: weighted components (e.g. Quizzes 20%), scores
@@ -59,6 +60,48 @@ function NumberField({
       accessibilityLabel={label}
       className={cn("h-9 px-2 text-sm tabular-nums", className)}
     />
+  );
+}
+
+/** "What do I need for a 1.75?" — the average needed on components with no scores yet. */
+function GradeTargetRow({ g, estimated }: { g: CourseGrades; estimated: number | null }) {
+  const [picked, setPicked] = useState<number | undefined>(undefined);
+  const plan = gradeTargets(g);
+  if (!plan) return null;
+  const grade = picked ?? defaultTarget(plan, estimated);
+  const target = plan.targets.find((t) => t.grade === grade) ?? plan.targets[0];
+  const left = plan.remaining.map((r) => `${r.name} (${r.weight}%)`).join(", ");
+  const sentence =
+    target.need == null
+      ? target.status === "secured"
+        ? `Every component has scores, and you're already at ${formatGrade(target.grade)} or better.`
+        : `Every component has scores, so ${formatGrade(target.grade)} isn't possible unless scores change.`
+      : target.status === "secured"
+        ? `You've locked in at least ${formatGrade(target.grade)}, even with 0% on ${left}.`
+        : target.status === "out-of-reach"
+          ? `${formatGrade(target.grade)} is out of reach: you'd need ${Math.ceil(target.need)}% on ${left}.`
+          : `To get ${formatGrade(target.grade)}, average at least ${Math.ceil(target.need)}% on ${left}.`;
+
+  return (
+    <View className="border-border gap-1.5 rounded-xl border px-4 py-3">
+      <View className="flex-row flex-wrap items-center gap-1.5">
+        <Text className="text-sm font-medium">What do I need for</Text>
+        <ChoicePopover<number>
+          value={grade}
+          options={plan.targets.map((t) => ({ value: t.grade, label: formatGrade(t.grade) }))}
+          onChange={setPicked}
+          accessibilityLabel="Target grade"
+          triggerClassName="border-border h-8 border"
+        />
+        <Text className="text-sm font-medium">?</Text>
+      </View>
+      <Text className={cn("text-sm leading-5", target.status === "out-of-reach" && "text-destructive")}>{sentence}</Text>
+      {plan.remaining.length ? (
+        <Text className="text-muted-foreground text-xs leading-4">
+          Counts components with no scores yet as what&apos;s left. A component with some scores already counts as finished.
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -138,6 +181,7 @@ function GradeBook({ course }: { course: Course }) {
           Estimate uses a common UP scale (92% = 1.00 … 60% = 3.00). Instructors vary, so record your final grade when it&apos;s out.
         </Text>
       ) : null}
+      {!s.isFinal ? <GradeTargetRow g={g} estimated={s.estimatedGrade} /> : null}
 
       <ScrollView style={{ maxHeight: Math.max(240, height * 0.5) }} contentContainerClassName="gap-4">
         {g.components.map((comp) => {

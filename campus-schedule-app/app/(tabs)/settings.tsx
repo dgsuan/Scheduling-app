@@ -6,6 +6,7 @@ import { AppearanceSection } from "@/components/settings/AppearanceSection";
 import { BackupSection } from "@/components/settings/BackupSection";
 import { InstallSection } from "@/components/settings/InstallSection";
 import { RemindersSection } from "@/components/settings/RemindersSection";
+import { SearchSection } from "@/components/settings/SearchSection";
 import { SemesterSection } from "@/components/settings/SemesterSection";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ export default function SettingsScreen() {
       <SemesterSection />
       <RemindersSection />
       <AppearanceSection />
+      <SearchSection />
       <BackupSection />
       <InstallSection />
     </ScrollView>

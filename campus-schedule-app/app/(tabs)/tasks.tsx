@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronRight, Flag, ListTree, Pencil, Repeat, Timer, Trash2, Users } from "lucide-react-native";
+import { ChevronRight, Flag, ListTree, NotebookPen, Pencil, Repeat, Timer, Trash2, Users } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
@@ -20,7 +20,8 @@ import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/text";
 import { formatSpent, useFocus } from "@/context/focus";
 import { useTheme } from "@/context/theme";
-import { useCourses, useSettings, useTasks, type Course, type Priority, type Task, type TaskRepeat } from "@/context/store";
+import { useAllCanvases, useCourses, useSettings, useTasks, type Course, type Priority, type Task, type TaskRepeat } from "@/context/store";
+import { canvasLabels } from "@/lib/noteLinks";
 import { addDaysIso, formatShortDate } from "@/lib/calendar";
 import { describeRepeat, nextRepeatDate, repeatStop, weeklyOn } from "@/lib/recurrence";
 import { display12h } from "@/lib/schedule";
@@ -80,6 +81,7 @@ function TaskRow({
   course,
   now,
   focusing,
+  noteLabel,
   onToggle,
   onRename,
   onEdit,
@@ -91,6 +93,8 @@ function TaskRow({
   course?: Course;
   now: Date;
   focusing: boolean;
+  /** Name of the linked notes canvas, if it still exists. */
+  noteLabel?: string;
   onToggle: (done: boolean) => void;
   onRename: (title: string) => void;
   onEdit: () => void;
@@ -196,6 +200,19 @@ function TaskRow({
                 </Text>
               </Pressable>
             ) : null}
+            {task.noteRef && noteLabel ? (
+              <Pressable
+                onPress={() => router.navigate(`/notes?canvas=${encodeURIComponent(task.noteRef!.canvasId)}`)}
+                accessibilityRole="link"
+                accessibilityLabel={`Open notes: ${noteLabel}`}
+                className="flex-row items-center gap-1 rounded web:hover:opacity-80"
+              >
+                <Icon as={NotebookPen} size={12} className="text-primary" />
+                <Text className="text-primary text-[13px]" numberOfLines={1}>
+                  {noteLabel}
+                </Text>
+              </Pressable>
+            ) : null}
             {task.timeSpentSec ? (
               <View className="flex-row items-center gap-1">
                 <Icon as={Timer} size={12} className="text-muted-foreground" />
@@ -264,15 +281,20 @@ export default function TasksScreen() {
 
   // Deep links: ?new=1 focuses the composer, ?open=<id> opens a task,
   // ?join=<code> opens a class-section invite.
-  const params = useLocalSearchParams<{ new?: string; open?: string; join?: string }>();
+  const params = useLocalSearchParams<{ new?: string; open?: string; join?: string; sections?: string }>();
   useEffect(() => {
-    if (params.join && isSupabaseConfigured) {
+    if (!isSupabaseConfigured) return;
+    if (params.join) {
       setJoinCode(String(params.join).slice(0, 16));
       setSectionsOpen(true);
       // Deferred: on a cold load from an invite link the root navigator isn't mounted yet.
       setTimeout(() => router.setParams({ join: undefined }), 0);
+    } else if (params.sections) {
+      setJoinCode(undefined);
+      setSectionsOpen(true);
+      setTimeout(() => router.setParams({ sections: undefined }), 0);
     }
-  }, [params.join]);
+  }, [params.join, params.sections]);
   useEffect(() => {
     if (params.new) {
       setTimeout(() => composer.current?.focus(), 50);
@@ -341,6 +363,8 @@ export default function TasksScreen() {
   }, [tasks, now]);
 
   const courseById = useMemo(() => Object.fromEntries(courses.map((c) => [c.id, c])), [courses]);
+  const canvases = useAllCanvases();
+  const noteLabels = useMemo(() => canvasLabels(canvases, courses), [canvases, courses]);
   const open = tasks.filter((x) => !x.done).length;
   const overdueCount = grouped.get("overdue")?.length ?? 0;
   const doneCount = grouped.get("done")?.length ?? 0;
@@ -485,6 +509,7 @@ export default function TasksScreen() {
                           course={task.courseId ? courseById[task.courseId] : undefined}
                           now={now}
                           focusing={focus.session?.taskId === task.id}
+                          noteLabel={task.noteRef ? noteLabels.get(task.noteRef.canvasId) : undefined}
                           onToggle={(done) => complete(task, done)}
                           onRename={(v) => updateTask(task.id, { title: v })}
                           onEdit={() => setEditing({ mode: "edit", kind: "task", task })}

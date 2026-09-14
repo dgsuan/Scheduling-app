@@ -36,6 +36,10 @@ yarn-error.*
 # test screenshots and downloads
 tests/.output/
 
+# app logic copied for the Edge Functions (npm run functions:prepare)
+supabase/functions/_shared/app/
+supabase/.temp/
+
 # typescript
 *.tsbuildinfo
 

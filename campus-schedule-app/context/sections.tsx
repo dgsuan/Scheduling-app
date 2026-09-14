@@ -3,8 +3,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { AppState, Platform } from "react-native";
 
 import { useAuth } from "@/context/auth";
-import { useSectionTasks } from "@/context/store";
-import { fetchSectionData, friendlyCloudError, type SectionData } from "@/lib/cloud";
+import { useSectionTasks, useTasks } from "@/context/store";
+import { fetchSectionData, friendlyCloudError, setPostDone, type SectionData } from "@/lib/cloud";
 import { supabase } from "@/lib/supabase";
 
 // The class sections the signed-in user belongs to, kept fresh (live
@@ -21,15 +21,19 @@ type SectionsCtx = SectionData & {
   loaded: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  /** "I submitted it": ticks the deadline's task here and shares the check-off with the section. */
+  setSubmitted: (postId: string, done: boolean) => void;
 };
 
-const EMPTY: SectionData = { sections: [], members: [], posts: [] };
+const EMPTY: SectionData = { sections: [], members: [], posts: [], marks: [], sharedNotes: [] };
+const MARK_DEBOUNCE_MS = 1200;
 
 const SectionsContext = createContext<SectionsCtx | null>(null);
 
 export function SectionsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const { applySectionPosts } = useSectionTasks();
+  const { tasks, updateTask } = useTasks();
   const [data, setData] = useState<SectionData>(EMPTY);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -100,6 +104,8 @@ export function SectionsProvider({ children }: { children: React.ReactNode }) {
     const channel: RealtimeChannel = db
       .channel(`section-posts:${userId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "section_posts" }, soon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "section_post_marks" }, soon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "section_shared_notes" }, soon)
       .subscribe();
     const interval = setInterval(() => void refresh(), REFRESH_MS);
     const appSub = AppState.addEventListener("change", (s) => s === "active" && soon());
@@ -116,6 +122,42 @@ export function SectionsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [userId]);
 
+  // Keep check-offs in step with the deadline tasks: finishing a section
+  // deadline in Tasks marks it submitted for the section, and un-ticking undoes it.
+  const marksDisabled = useRef(false);
+  useEffect(() => {
+    if (!supabase || !userId || !loaded || marksDisabled.current) return;
+    const postIds = new Set(data.posts.map((p) => p.id));
+    const mine = new Set(data.marks.filter((m) => m.userId === userId).map((m) => m.postId));
+    const changes = tasks.flatMap((t) =>
+      t.source?.kind === "section" && postIds.has(t.source.key) && t.done !== mine.has(t.source.key)
+        ? [{ postId: t.source.key, done: t.done }]
+        : []
+    );
+    if (!changes.length) return;
+    const timer = setTimeout(async () => {
+      for (const c of changes) {
+        try {
+          await setPostDone(c.postId, userId, c.done);
+          setData((d) => ({
+            ...d,
+            marks: c.done
+              ? [...d.marks.filter((m) => !(m.postId === c.postId && m.userId === userId)), { postId: c.postId, userId }]
+              : d.marks.filter((m) => !(m.postId === c.postId && m.userId === userId)),
+          }));
+        } catch (e) {
+          // Not set up yet (migration 0003) or offline: stop until the next refresh.
+          if (/database update/i.test(friendlyCloudError(e))) marksDisabled.current = true;
+          return;
+        }
+      }
+    }, MARK_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [tasks, data.posts, data.marks, userId, loaded]);
+
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+
   const value = useMemo<SectionsCtx>(
     () => ({
       ...data,
@@ -123,9 +165,31 @@ export function SectionsProvider({ children }: { children: React.ReactNode }) {
       loading,
       loaded,
       error,
-      refresh: () => refreshRef.current(),
+      refresh: () => {
+        marksDisabled.current = false;
+        return refreshRef.current();
+      },
+      setSubmitted: (postId: string, done: boolean) => {
+        const task = tasksRef.current.find((t) => t.source?.kind === "section" && t.source.key === postId);
+        if (task) {
+          updateTask(task.id, { done });
+          return;
+        }
+        // The deadline's task was deleted here: record the check-off directly.
+        if (!userId) return;
+        setPostDone(postId, userId, done)
+          .then(() =>
+            setData((d) => ({
+              ...d,
+              marks: done
+                ? [...d.marks.filter((m) => !(m.postId === postId && m.userId === userId)), { postId, userId }]
+                : d.marks.filter((m) => !(m.postId === postId && m.userId === userId)),
+            }))
+          )
+          .catch((e) => setError(friendlyCloudError(e)));
+      },
     }),
-    [data, userId, loading, loaded, error]
+    [data, userId, loading, loaded, error, updateTask]
   );
 
   return <SectionsContext.Provider value={value}>{children}</SectionsContext.Provider>;

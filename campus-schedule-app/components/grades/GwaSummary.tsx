@@ -1,13 +1,17 @@
 import { View } from "react-native";
 
 import { Text } from "@/components/ui/text";
-import type { Course, CourseGrades } from "@/context/store";
+import { useSemester, type Course, type CourseGrades } from "@/context/store";
 import { computeGwa, formatGrade } from "@/lib/grades";
+import { cumulativeGwa } from "@/lib/semester";
 
-// Overall GWA (general weighted average, UP scale) across courses with grades.
+// GWA (general weighted average, UP scale) for this semester, plus the
+// overall GWA once past semesters have been archived.
 
 export function GwaSummary({ courses, grades }: { courses: Course[]; grades: Record<string, CourseGrades> }) {
   const r = computeGwa(courses, grades);
+  const { archivedTerms } = useSemester();
+  const overall = archivedTerms.length ? cumulativeGwa(archivedTerms, { courses, grades }) : null;
   return (
     <View className="bg-card/80 border-border mb-6 flex-row items-center gap-5 rounded-xl border px-5 py-4">
       <View>
@@ -23,6 +27,15 @@ export function GwaSummary({ courses, grades }: { courses: Course[]; grades: Rec
             : "Add courses to start tracking grades."
           : `${r.allFinal ? "From final grades" : "Estimated"} · ${r.counted.length} course${r.counted.length === 1 ? "" : "s"} · ${r.units} unit${r.units === 1 ? "" : "s"}`}
       </Text>
+      {overall?.gwa != null ? (
+        <View className="items-end">
+          <Text className="text-muted-foreground text-xs font-semibold uppercase tracking-[1.2px]">Overall</Text>
+          <Text className="font-display text-[22px] font-semibold leading-7 tabular-nums">{formatGrade(overall.gwa)}</Text>
+          <Text className="text-muted-foreground text-xs tabular-nums">
+            {archivedTerms.length + 1} semesters · {overall.units} units
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

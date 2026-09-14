@@ -1,4 +1,5 @@
-import { CalendarClock, ListTodo, Repeat, StickyNote } from "lucide-react-native";
+import { router } from "expo-router";
+import { CalendarClock, ListTodo, NotebookPen, Repeat, StickyNote } from "lucide-react-native";
 import { useState } from "react";
 import { ScrollView, View } from "react-native";
 
@@ -19,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import {
+  useAllCanvases,
   useCourses,
   useDatedNotes,
   useEvents,
@@ -31,6 +33,7 @@ import {
 } from "@/context/store";
 import { formatShortDate } from "@/lib/calendar";
 import { WEEKDAY_LONG } from "@/lib/schedule";
+import { canvasOptions } from "@/lib/noteLinks";
 import { PRIORITY_LABEL } from "@/lib/tasks";
 import { weekdayOf } from "@/lib/dates";
 import { ChoicePopover, type Choice } from "@/components/ChoicePopover";
@@ -131,7 +134,13 @@ function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => vo
   const [priority, setPriority] = useState<Priority>(init.priority);
   const [repeat, setRepeat] = useState<TaskRepeat | undefined>(init.repeat);
   const [courseId, setCourseId] = useState<string | undefined>(init.courseId);
+  const [noteCanvas, setNoteCanvas] = useState<string | undefined>(init.noteCanvas);
   const [error, setError] = useState<string | null>(null);
+  const canvases = useAllCanvases();
+  const noteChoices: Choice<string | undefined>[] = [
+    { value: undefined, label: "No linked notes" },
+    ...canvasOptions(canvases, courses).map((o) => ({ value: o.id as string | undefined, label: o.label })),
+  ];
 
   const creating = target.mode === "create";
   const noun = type === "task" ? "task" : type === "event" ? "event" : "note";
@@ -169,6 +178,7 @@ function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => vo
         courseId,
         // A repeat needs a date to anchor on.
         repeat: end ?? start ? anchorRepeat(repeat, (end ?? start)!) : undefined,
+        noteRef: noteCanvas ? { canvasId: noteCanvas } : undefined,
       };
       if (target.mode === "edit" && target.kind === "task") updateTask(target.task.id, patch);
       else addTask({ ...patch, done: false });
@@ -336,6 +346,31 @@ function EditorForm({ target, onDone }: { target: EditorTarget; onDone: () => vo
               </ScrollView>
             </View>
           ) : null}
+          <View className="gap-1.5">
+            <FieldLabel>Notes</FieldLabel>
+            <View className="flex-row flex-wrap items-center gap-2">
+              <ChoicePopover<string | undefined>
+                value={noteCanvas}
+                onChange={setNoteCanvas}
+                options={noteChoices}
+                icon={NotebookPen}
+                accessibilityLabel="Linked notes"
+                triggerClassName="border-border border"
+              />
+              {noteCanvas && noteChoices.some((c) => c.value === noteCanvas) ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => {
+                    onDone();
+                    router.navigate(`/notes?canvas=${encodeURIComponent(noteCanvas)}`);
+                  }}
+                >
+                  <Text className="text-primary">Open notes</Text>
+                </Button>
+              ) : null}
+            </View>
+          </View>
         </>
       ) : null}
 
@@ -388,6 +423,7 @@ function initialState(target: EditorTarget) {
     priority: "medium" as Priority,
     courseId: undefined as string | undefined,
     repeat: undefined as TaskRepeat | undefined,
+    noteCanvas: undefined as string | undefined,
   };
   if (target.mode === "create") {
     if (target.startTime) {
@@ -410,6 +446,7 @@ function initialState(target: EditorTarget) {
       priority: t.priority,
       courseId: t.courseId,
       repeat: t.repeat,
+      noteCanvas: t.noteRef?.canvasId,
     };
   }
   if (target.kind === "event") {

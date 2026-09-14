@@ -2,8 +2,8 @@
 //  • App shell works offline: pages are network-first with a cached fallback.
 //  • Hashed build assets and fonts are cache-first (their URLs change when they do).
 //  • Clicking a reminder notification focuses the app (or opens it).
-// It does not schedule notifications by itself: without a push server,
-// reminders only fire while the app is open. See ARCHITECTURE.md.
+//  • Push messages from the "reminders" Edge Function become notifications,
+//    so reminders arrive while the app is closed (when turned on in Settings).
 
 const CACHE = "campus-schedule-v1";
 const SCOPE = new URL(self.registration.scope);
@@ -70,9 +70,30 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: event.data ? event.data.text() : "" };
+  }
+  const text = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
+  const title = text(data.title, 120) || "Reminder";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: text(data.body, 240),
+      tag: text(data.tag, 200) || undefined,
+      icon: new URL("icons/icon-192.png", SCOPE).href,
+      data: { path: text(data.path, 40) },
+    })
+  );
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const path = (event.notification.data && event.notification.data.path) || "";
+  const raw = (event.notification.data && event.notification.data.path) || "";
+  // Only simple in-app paths (e.g. "tasks"); never a full URL.
+  const path = /^[a-z0-9/?=&-]*$/i.test(raw) ? raw : "";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       const open = clients.find((c) => c.url.startsWith(SCOPE.href));
