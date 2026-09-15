@@ -13,6 +13,7 @@ import {
 import { AppState, Platform, View, useColorScheme } from "react-native";
 
 import { AmbientBackground } from "@/components/AmbientBackground";
+import { EkaSparkles } from "@/components/EkaSparkles";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -185,8 +186,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     nativewindScheme.set(theme.scheme);
     if (Platform.OS !== "web") return;
     applyToDocument(theme, tod);
-    ensureFonts(appearance.font, appearance.serifHeadings);
-  }, [theme, tod, appearance.font, appearance.serifHeadings]);
+    ensureFonts(appearance.font, appearance.serifHeadings, appearance.eka);
+  }, [theme, tod, appearance.font, appearance.serifHeadings, appearance.eka]);
 
   const setAppearance = useCallback((patch: Partial<Appearance>) => {
     setAppearanceState((prev) => normalizeAppearance({ ...prev, ...patch }));
@@ -221,6 +222,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         ]}
       >
         <AmbientBackground color={theme.wash.color} opacity={theme.wash.opacity} />
+        {appearance.eka ? <EkaSparkles color={theme.palette.accent} /> : null}
         {children}
       </View>
     </ThemeContext.Provider>

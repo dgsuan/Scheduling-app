@@ -173,6 +173,39 @@ try {
     check("Leaving removes your free times", refused(await A.from("section_busy_times").select("user_id").eq("section_id", sid2).eq("user_id", bId)));
   }
 
+  // --- 0006: friend activity -----------------------------------------------------------
+  // Assumes the two test accounts share no real section: after the checks above,
+  // the share link below is their only connection.
+  const has0006 = !(await A.from("user_activity").select("user_id").limit(1)).error;
+  if (!has0006) {
+    results.push("SKIP  0006 checks — run supabase/migrations/0006_activity.sql to test them");
+  } else {
+    cleanup.push(() => A.from("user_activity").delete().eq("user_id", aId));
+    cleanup.push(() => B.from("user_activity").delete().eq("user_id", bId));
+    const share3 = await A.rpc("share_course", { p_course: { code: "SEC 102", meetings: [] } });
+    if (share3.data) cleanup.push(() => A.rpc("revoke_shared_course", { p_code: share3.data }));
+    await B.rpc("get_shared_course", { p_code: share3.data });
+
+    const pubA = await A.from("user_activity")
+      .upsert({ user_id: aId, display_name: "  Tester A  ", status: "doing", title: "Lab report", course_code: "SEC 101", since: "2099-01-01T00:00:00Z" }, { onConflict: "user_id" })
+      .select("display_name,since");
+    check("Users can share what they're doing", !pubA.error, pubA.error?.message);
+    check("Activity can't be dated in the future", !!pubA.data?.[0] && pubA.data[0].since < "2099", pubA.data?.[0]?.since);
+    check("Activity names are trimmed", pubA.data?.[0]?.display_name === "Tester A");
+    check("Opening someone's share code connects you (you see their activity)", !refused(await B.from("user_activity").select("title").eq("user_id", aId)));
+    await B.from("user_activity").insert({ user_id: aId, display_name: "B", status: "doing", title: "fake" });
+    const aRow = await A.from("user_activity").select("title").eq("user_id", aId);
+    check("Can't post activity as someone else", aRow.data?.[0]?.title === "Lab report", JSON.stringify(aRow.data));
+    check("Can't change someone else's activity", refused(await B.from("user_activity").update({ title: "hacked" }).eq("user_id", aId).select("user_id")));
+    check("Can't delete someone else's activity", refused(await B.from("user_activity").delete().eq("user_id", aId).select("user_id")));
+    check("Invalid activity status is rejected", !!(await A.from("user_activity").update({ status: "watching" }).eq("user_id", aId)).error);
+    check("Overlong activity titles are rejected", !!(await A.from("user_activity").update({ title: "x".repeat(300) }).eq("user_id", aId)).error);
+    check("Can't create share links by hand", !!(await B.from("course_share_links").insert({ owner_id: aId, user_id: bId })).error);
+    const unlink = await B.from("course_share_links").delete().or(`owner_id.eq.${aId},user_id.eq.${aId}`).select("owner_id");
+    check("Either person can remove the connection", !unlink.error && (unlink.data?.length ?? 0) >= 1, unlink.error?.message);
+    check("Without a shared section or course, activity is hidden", refused(await B.from("user_activity").select("title").eq("user_id", aId)));
+  }
+
   // --- Storage -----------------------------------------------------------------------
   const txt = new TextEncoder().encode("hello");
   const ownFile = `${aId}/sec-test-${stamp}.txt`;

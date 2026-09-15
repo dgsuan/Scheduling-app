@@ -2,11 +2,17 @@
 // banner on Home. Bump GUIDE_VERSION when WHATS_NEW changes so everyone sees
 // the banner once more.
 
-export const GUIDE_VERSION = 3;
+export const GUIDE_VERSION = 4;
 
 export type WhatsNewItem = { title: string; body: string; where: string; href?: string };
 
 export const WHATS_NEW: WhatsNewItem[] = [
+  {
+    title: "Task board & Friend activity",
+    body: "Drag tasks between Not started, Doing and Finished. Share what you're doing with your class sections and people you've shared courses with.",
+    where: "Tasks → Board",
+    href: "/tasks",
+  },
   {
     title: "Upload your Form 5",
     body: "Pick your Form 5 PDF and your classes, times and rooms fill in. It's read on your device.",
@@ -135,6 +141,12 @@ export const GUIDE_SECTIONS: GuideSection[] = [
       { title: "Steps", body: "Hover a task (or tap it on a phone) and use the list icon to break it into steps." },
       { title: "Focus timer", body: "The timer icon starts a session; the time is saved on the task when you stop." },
       { title: "Link notes", body: "Edit a task → Notes → pick a notebook or folder. Open it from the task later.", isNew: true },
+      { title: "Board", body: "Switch to Board and drag tasks between Not started, Doing and Finished — or use Start and Done on each card.", isNew: true },
+      {
+        title: "Friend activity",
+        body: "Turn on “Share what I'm doing” so classmates in your sections and people you've shared courses with see your Doing task. The lock on a card keeps that task private.",
+        isNew: true,
+      },
       { title: "Undo", body: "Deleted something by mistake? Press Undo on the message that pops up." },
     ],
     link: { label: "Go to Tasks", href: "/tasks" },

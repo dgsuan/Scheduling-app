@@ -1,4 +1,4 @@
-import { DISPLAY_SERIF, FONTS, type FontId } from "@/constants/theme";
+import { DISPLAY_SERIF, EKA_FONTS, FONTS, type FontId } from "@/constants/theme";
 
 // Web typography. The interface font and the display (heading) font are
 // CSS variables set by context/theme.tsx from the user's Appearance; this
@@ -48,7 +48,12 @@ if (typeof document !== "undefined" && !document.getElementById("app-font-rules"
 }
 
 /** Load the fonts the current Appearance needs (idempotent). */
-export function ensureFonts(font: FontId, serifHeadings: boolean) {
+export function ensureFonts(font: FontId, serifHeadings: boolean, eka = false) {
+  if (eka) {
+    loadGoogleFamily(EKA_FONTS.sans.google);
+    loadGoogleFamily(EKA_FONTS.display.google);
+    return;
+  }
   const google = FONTS[font].google;
   if (google) loadGoogleFamily(google);
   if (serifHeadings) loadGoogleFamily(DISPLAY_SERIF.google);

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Platform } from "react-native";
 
+import { ActivityEngine } from "@/components/ActivityEngine";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { OcrIndexer } from "@/components/OcrIndexer";
 import { ReminderEngine } from "@/components/ReminderEngine";
@@ -30,6 +31,7 @@ export function AppServices() {
     <>
       <ReminderEngine />
       <SyncEngine />
+      <ActivityEngine />
       <OcrIndexer />
       <StorageErrorWatcher />
       <KeyboardShortcuts />

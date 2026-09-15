@@ -91,6 +91,8 @@ export type Appearance = {
   radius: RadiusId;
   /** Let the palette drift with the time of day. */
   atmosphere: boolean;
+  /** Eka mode. Overrides preset, colors, font and corners. */
+  eka: boolean;
 };
 
 export const APPEARANCE_KEY = "campus-schedule:appearance:v1";
@@ -107,6 +109,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   scale: 1,
   radius: "default",
   atmosphere: true,
+  eka: false,
 };
 
 type HSL = readonly [number, number, number];
@@ -179,8 +182,17 @@ export function normalizeAppearance(raw: unknown): Appearance {
     scale,
     radius: pick(a.radius, Object.keys(RADII) as RadiusId[], DEFAULT_APPEARANCE.radius),
     atmosphere: typeof a.atmosphere === "boolean" ? a.atmosphere : DEFAULT_APPEARANCE.atmosphere,
+    eka: a.eka === true,
   };
 }
+
+// --- Eka mode -------------------------------------------------------------
+
+export const EKA_FONTS = {
+  sans: { stack: '"Nunito", ui-rounded, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif', google: "Nunito:wght@400..800" },
+  display: { stack: '"Fredoka", "Nunito", ui-rounded, ui-sans-serif, system-ui, sans-serif', google: "Fredoka:wght@400..700" },
+};
+const EKA_RADIUS = "1.25rem";
 
 // --- Tokens --------------------------------------------------------------
 
@@ -342,6 +354,51 @@ const SHIFTS: Record<ThemeScheme, Record<TimeOfDay, Partial<Core>>> = {
   },
 };
 
+const EKA: Record<ThemeScheme, Partial<Core>> = {
+  light: {
+    background: [340, 60, 97],
+    foreground: [335, 32, 17],
+    card: [340, 80, 99],
+    popover: [340, 80, 99],
+    secondary: [340, 55, 93],
+    accent: [338, 55, 90],
+    mutedForeground: [335, 20, 40],
+    border: [338, 45, 86],
+    input: [338, 45, 84],
+    dot: [338, 40, 80],
+  },
+  dark: {
+    background: [330, 22, 10],
+    foreground: [335, 40, 93],
+    card: [330, 22, 13],
+    popover: [330, 22, 14],
+    secondary: [330, 20, 17],
+    accent: [330, 20, 20],
+    mutedForeground: [335, 16, 67],
+    border: [330, 18, 23],
+    input: [330, 18, 25],
+    dot: [330, 16, 26],
+  },
+};
+const EKA_PRIMARY: Record<ThemeScheme, HSL> = { light: [330, 68, 46], dark: [330, 85, 74] };
+// The sky still changes with the day: peach at dawn, pink by day, lavender at night.
+const EKA_WASH: Record<ThemeScheme, Record<TimeOfDay, Pick<Core, "wash" | "washOpacity">>> = {
+  light: {
+    earlyMorning: { wash: [20, 95, 84], washOpacity: 0.55 },
+    morning: { wash: [345, 90, 86], washOpacity: 0.5 },
+    afternoon: { wash: [335, 85, 85], washOpacity: 0.5 },
+    evening: { wash: [300, 70, 85], washOpacity: 0.5 },
+    night: { wash: [270, 55, 82], washOpacity: 0.45 },
+  },
+  dark: {
+    earlyMorning: { wash: [15, 70, 35], washOpacity: 0.3 },
+    morning: { wash: [335, 60, 35], washOpacity: 0.3 },
+    afternoon: { wash: [330, 60, 35], washOpacity: 0.3 },
+    evening: { wash: [300, 50, 32], washOpacity: 0.32 },
+    night: { wash: [275, 50, 28], washOpacity: 0.35 },
+  },
+};
+
 const NEUTRAL_KEYS = [
   "background",
   "foreground",
@@ -421,9 +478,12 @@ export function buildTheme(
   const period: TimeOfDay = appearance.atmosphere ? tod : "afternoon";
   const preset = PRESETS[appearance.preset];
 
+  const eka = appearance.eka;
   let scheme = requested;
   let c: Core;
-  if (appearance.background) {
+  if (eka) {
+    c = { ...BASE[scheme], ...EKA[scheme], ...EKA_WASH[scheme][period] };
+  } else if (appearance.background) {
     const bg = hexToHsl(appearance.background);
     scheme = bg[2] < 50 ? "dark" : "light";
     const base = { ...BASE[scheme], ...SHIFTS[scheme][period] };
@@ -438,10 +498,10 @@ export function buildTheme(
     }
   }
 
-  let primary: HSL = scheme === "dark" ? preset.dark : preset.light;
+  let primary: HSL = eka ? EKA_PRIMARY[scheme] : scheme === "dark" ? preset.dark : preset.light;
   // Dim the accent a touch late at night in dark mode, like the rest of the palette.
-  if (scheme === "dark" && period === "night") primary = [primary[0], primary[1] * 0.75, primary[2] - 6];
-  if (appearance.accent) primary = hexToHsl(appearance.accent);
+  if (!eka && scheme === "dark" && period === "night") primary = [primary[0], primary[1] * 0.75, primary[2] - 6];
+  if (appearance.accent && !eka) primary = hexToHsl(appearance.accent);
   c.primary = primary;
   c.primaryForeground = foregroundOn(primary);
 
@@ -468,7 +528,7 @@ export function buildTheme(
     "--ring": css(c.primary),
     "--warning": css(c.warning),
     "--success": css(c.success),
-    "--radius": RADII[appearance.radius].value,
+    "--radius": eka ? EKA_RADIUS : RADII[appearance.radius].value,
   };
   const palette: Palette = {
     scheme,
@@ -495,8 +555,8 @@ export function buildTheme(
     tokens,
     palette,
     wash: { color: hex(c.wash), opacity: c.washOpacity },
-    fontSans: font.stack,
-    fontDisplay: appearance.serifHeadings ? DISPLAY_SERIF.stack : font.stack,
+    fontSans: eka ? EKA_FONTS.sans.stack : font.stack,
+    fontDisplay: eka ? EKA_FONTS.display.stack : appearance.serifHeadings ? DISPLAY_SERIF.stack : font.stack,
     scale: appearance.scale,
     contrastIssues: contrastIssues(palette),
   };

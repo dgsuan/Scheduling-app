@@ -356,6 +356,20 @@ test("time of day + appearance", () => {
   assert.equal(bgs.size, 5);
   const still = new Set(periods.map((p) => buildTheme("light", p, { ...DEFAULT_APPEARANCE, atmosphere: false }).tokens["--background"]));
   assert.equal(still.size, 1, "atmosphere off → no drift");
+
+  // Eka mode: readable in every scheme and time of day, whatever else is set.
+  assert.equal(normalizeAppearance({ eka: "yes" }).eka, false);
+  const loud = { ...DEFAULT_APPEARANCE, eka: true, preset: "moss" as const, accent: "#FFFF66", background: "#101418", radius: "sharp" as const };
+  for (const scheme of ["light", "dark"] as const) {
+    for (const p of periods) {
+      const t = buildTheme(scheme, p, loud);
+      assert.equal(t.scheme, scheme, "Eka mode ignores a custom background");
+      assert.deepEqual(t.contrastIssues, [], `Eka ${scheme} ${p} passes contrast`);
+      assert.ok(t.tokens["--primary"].startsWith("330 "), "its own accent, not the custom one");
+      assert.equal(t.tokens["--radius"], "1.25rem");
+      assert.ok(t.fontDisplay.includes("Fredoka"));
+    }
+  }
 });
 
 test("fuzzy search", () => {

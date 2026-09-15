@@ -163,6 +163,12 @@ export type Task = {
   focusLog?: Record<string, number>;
   /** Notes canvas (General, a course, or a folder) this task works from. */
   noteRef?: { canvasId: string };
+  /** On the task board: being worked on now (shown in Friend activity when shared). */
+  status?: "doing";
+  /** When it moved to Doing. */
+  startedAt?: number;
+  /** Never shown in Friend activity. */
+  private?: boolean;
   source?: ImportSource;
 };
 
@@ -219,6 +225,12 @@ export type PlannerSettings = {
   imageTextSearch?: boolean;
   /** Last Guide version seen (hides the "New in this update" banner). */
   seenGuideVersion?: number;
+  /** Tasks screen layout. */
+  tasksView?: "list" | "board";
+  /** Friend activity: share the Doing task with sections and share-code contacts. */
+  shareActivity?: boolean;
+  /** Name shown in Friend activity (defaults to a section display name). */
+  activityName?: string;
 };
 
 export const DEFAULT_SETTINGS: PlannerSettings = {
@@ -688,7 +700,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTasks((prev) =>
       prev.flatMap((t) => {
         if (t.id !== id) return [t];
-        const merged = { ...t, ...patch };
+        const merged: Task = { ...t, ...patch };
+        if (patch.done === true && !t.done) {
+          // Finishing leaves the board's Doing column and records when.
+          merged.status = undefined;
+          merged.startedAt = undefined;
+          merged.completedAt = patch.completedAt ?? Date.now();
+        } else if (patch.done === false && t.done) {
+          merged.completedAt = undefined;
+        }
         if (patch.done === true && !t.done && t.repeat && t.due) {
           return rollSeries(t, merged, settingsRef.current, true);
         }

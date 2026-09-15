@@ -32,6 +32,7 @@ import { agendaForDate, formatShortDate } from "@/lib/calendar";
 import { dayLabel, dayLoads, describeLoad, focusThisWeek } from "@/lib/insights";
 import { classesOnDate, computeNowAndNext, occurrencesOnDate, type DatedOccurrence } from "@/lib/schedule";
 import { formatDue, isDueSoon, isOverdue, isoDate, sortTasks, withinNextDays } from "@/lib/tasks";
+import { useAppearance } from "@/context/theme";
 import { greeting } from "@/lib/timeOfDay";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { useNow } from "@/lib/useNow";
@@ -104,6 +105,7 @@ export default function ScheduleHomeScreen() {
   const { items: generalItems } = useCanvas(GENERAL_CANVAS);
   const { desktop } = useBreakpoint();
   const now = useNow();
+  const { eka } = useAppearance().appearance;
   const [quick, setQuick] = useState("");
   const [roomFor, setRoomFor] = useState<DatedOccurrence | null>(null);
 
@@ -338,7 +340,7 @@ export default function ScheduleHomeScreen() {
       contentContainerClassName={cn("w-full max-w-[1120px] self-center pb-16", desktop ? "px-10 pt-10" : "px-5 pt-6")}
       keyboardShouldPersistTaps="handled"
     >
-      <ScreenHeader eyebrow={greeting(now)} title={dateTitle} />
+      <ScreenHeader eyebrow={eka ? `${greeting(now)} ♡` : greeting(now)} title={dateTitle} />
       <View className={cn("-mt-4 flex-row flex-wrap items-center gap-x-3 gap-y-1", crunches.length ? "mb-3" : "mb-7")}>
         <Text className="text-muted-foreground text-sm">
           {summary.join("  ·  ")}

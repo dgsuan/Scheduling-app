@@ -150,6 +150,7 @@ export function AppearanceSection() {
         ) : null}
       </View>
 
+      {!a.eka ? (
       <SettingsRow label="Theme" hint="A starting point for the colors.">
         <View className="flex-row flex-wrap gap-3" role="radiogroup" aria-label="Theme">
           {presetIds.map((id) => {
@@ -172,10 +173,11 @@ export function AppearanceSection() {
           })}
         </View>
       </SettingsRow>
+      ) : null}
 
       <SettingsRow
         label="Mode"
-        hint={a.background ? "Set by your custom background." : "System follows your device's light/dark setting."}
+        hint={a.background && !a.eka ? "Set by your custom background." : "System follows your device's light/dark setting."}
       >
         <SegmentedControl<ThemeMode>
           value={a.mode}
@@ -189,6 +191,8 @@ export function AppearanceSection() {
         />
       </SettingsRow>
 
+      {!a.eka ? (
+      <>
       <SettingsRow label="Accent color" hint="Buttons, links, today and the current class." stacked>
         <View className="flex-row flex-wrap items-center gap-2.5" role="radiogroup" aria-label="Accent color">
           {ACCENTS.map((hex) => (
@@ -278,6 +282,8 @@ export function AppearanceSection() {
         checked={a.serifHeadings}
         onChange={(serifHeadings) => setAppearance({ serifHeadings })}
       />
+      </>
+      ) : null}
 
       {Platform.OS === "web" ? (
         <SettingsRow label="Interface size" hint="Scales text and controls together.">
@@ -290,6 +296,7 @@ export function AppearanceSection() {
         </SettingsRow>
       ) : null}
 
+      {!a.eka ? (
       <SettingsRow label="Corners">
         <SegmentedControl<RadiusId>
           value={a.radius}
@@ -298,6 +305,7 @@ export function AppearanceSection() {
           accessibilityLabel="Corner roundness"
         />
       </SettingsRow>
+      ) : null}
 
       <SettingsToggleRow
         label="Time-of-day atmosphere"
@@ -305,6 +313,8 @@ export function AppearanceSection() {
         checked={a.atmosphere}
         onChange={(atmosphere) => setAppearance({ atmosphere })}
       />
+
+      <SettingsToggleRow label="Eka mode" checked={a.eka} onChange={(eka) => setAppearance({ eka })} />
 
       <View className="flex-row justify-end px-3 py-2.5">
         <Button variant="ghost" size="sm" onPress={resetAppearance}>

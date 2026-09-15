@@ -13,6 +13,9 @@ import { RecurringDeleteDialog } from "@/components/tasks/RecurringDeleteDialog"
 import { SubtaskList } from "@/components/tasks/SubtaskList";
 import { TimePickerField } from "@/components/TimePickerField";
 import { SectionsDialog } from "@/components/sections/SectionsDialog";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { FriendActivity } from "@/components/tasks/FriendActivity";
+import { TaskBoard } from "@/components/tasks/TaskBoard";
 import { useToast } from "@/components/Toaster";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -21,6 +24,7 @@ import { Text } from "@/components/ui/text";
 import { formatSpent, useFocus } from "@/context/focus";
 import { useTheme } from "@/context/theme";
 import { useAllCanvases, useCourses, useSettings, useTasks, type Course, type Priority, type Task, type TaskRepeat } from "@/context/store";
+import { patchForColumn, type BoardColumn } from "@/lib/activity";
 import { canvasLabels } from "@/lib/noteLinks";
 import { addDaysIso, formatShortDate } from "@/lib/calendar";
 import { describeRepeat, nextRepeatDate, repeatStop, weeklyOn } from "@/lib/recurrence";
@@ -156,6 +160,12 @@ function TaskRow({
             )}
           />
           <View className="flex-row flex-wrap items-center gap-x-3 gap-y-0.5">
+            {task.status === "doing" && !checked ? (
+              <View className="flex-row items-center gap-1.5">
+                <View className="bg-primary size-1.5 rounded-full" />
+                <Text className="text-primary text-[13px] font-medium">Doing</Text>
+              </View>
+            ) : null}
             {label ? (
               <Text
                 className={cn(
@@ -258,7 +268,8 @@ function TaskRow({
 export default function TasksScreen() {
   const { tasks, addTask, updateTask, removeTask, restoreTask, skipTaskOccurrence, clearCompletedTasks } = useTasks();
   const { courses } = useCourses();
-  const { settings } = useSettings();
+  const { settings, updateSettings } = useSettings();
+  const view = settings.tasksView === "board" ? "board" : "list";
   const focus = useFocus();
   const { toast } = useToast();
   const t = useTheme();
@@ -353,6 +364,21 @@ export default function TasksScreen() {
     });
   };
 
+  const move = (task: Task, to: BoardColumn) => {
+    if (to === "done") complete(task, true);
+    else updateTask(task.id, patchForColumn(to));
+  };
+
+  // Starting the focus timer on a task also puts it in Doing.
+  const toggleFocus = (task: Task) => {
+    if (focus.session?.taskId === task.id) {
+      focus.stop();
+      return;
+    }
+    focus.start(task.id);
+    if (!task.done && task.status !== "doing") updateTask(task.id, patchForColumn("doing"));
+  };
+
   const grouped = useMemo(() => {
     const map = new Map<SectionKey, Task[]>();
     for (const task of sortTasks(tasks)) {
@@ -381,10 +407,14 @@ export default function TasksScreen() {
   ];
 
   return (
-    <View className="flex-1">
+    <View className={cn("flex-1", desktop && isSupabaseConfigured && "flex-row")}>
       <ScrollView
         className="flex-1"
-        contentContainerClassName={cn("w-full max-w-[760px] self-center pb-16", desktop ? "px-10 pt-10" : "px-5 pt-6")}
+        contentContainerClassName={cn(
+          "w-full self-center pb-16",
+          view === "board" ? "max-w-[1120px]" : "max-w-[760px]",
+          desktop ? "px-10 pt-10" : "px-5 pt-6"
+        )}
         keyboardShouldPersistTaps="handled"
       >
         <ScreenHeader
@@ -457,8 +487,32 @@ export default function TasksScreen() {
           </View>
         </View>
 
+        <View className="mt-5 flex-row">
+          <SegmentedControl<"list" | "board">
+            value={view}
+            onChange={(tasksView) => updateSettings({ tasksView })}
+            options={[
+              { value: "list", label: "List" },
+              { value: "board", label: "Board" },
+            ]}
+            accessibilityLabel="Tasks view"
+          />
+        </View>
+
         {/* Sections */}
-        {tasks.length === 0 ? (
+        {view === "board" ? (
+          <View className="pt-5">
+            <TaskBoard
+              tasks={tasks}
+              courseById={courseById}
+              now={now}
+              stacked={!desktop}
+              onMove={move}
+              onEdit={(task) => setEditing({ mode: "edit", kind: "task", task })}
+              onTogglePrivate={(task) => updateTask(task.id, { private: task.private ? undefined : true })}
+            />
+          </View>
+        ) : tasks.length === 0 ? (
           <View className="items-center py-16">
             <Text className="font-display text-xl font-semibold">A clean slate.</Text>
             <Text className="text-muted-foreground mt-1 text-sm">Add your first task above.</Text>
@@ -514,7 +568,7 @@ export default function TasksScreen() {
                           onRename={(v) => updateTask(task.id, { title: v })}
                           onEdit={() => setEditing({ mode: "edit", kind: "task", task })}
                           onDelete={() => remove(task)}
-                          onFocus={() => (focus.session?.taskId === task.id ? focus.stop() : focus.start(task.id))}
+                          onFocus={() => toggleFocus(task)}
                         />
                       ))
                     : null}
@@ -523,7 +577,13 @@ export default function TasksScreen() {
             })}
           </LayoutAnimationConfig>
         )}
+        {!desktop ? <FriendActivity className="border-border/70 mt-10 border-t pt-6" /> : null}
       </ScrollView>
+      {desktop && isSupabaseConfigured ? (
+        <ScrollView className="border-border/70 w-[300px] flex-none border-l" contentContainerClassName="px-5 pb-16 pt-10">
+          <FriendActivity />
+        </ScrollView>
+      ) : null}
 
       <ItemEditorDialog target={editing} onClose={() => setEditing(null)} />
       <RecurringDeleteDialog

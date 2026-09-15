@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 
 import type { Course, Meeting, Weekday } from "@/context/store";
 import { removeAllFiles } from "@/lib/cloudFiles";
+import { validateActivityRow, type FriendActivity, type MyActivity } from "@/lib/activity";
 import { MAX_BUSY_BLOCKS, validBusy, type BusyBlock } from "@/lib/freeTime";
 import { validateSharedNotes, type SharedNote } from "@/lib/sharedNotes";
 import { supabase } from "@/lib/supabase";
@@ -405,6 +406,42 @@ export async function shareBusyTimes(sectionId: string, userId: string, busy: Bu
 
 export async function stopSharingBusyTimes(sectionId: string, userId: string) {
   await run(client().from("section_busy_times").delete().eq("section_id", sectionId).eq("user_id", userId));
+}
+
+// --- Friend activity -------------------------------------------------------------------------
+
+/** Activity from people in your sections and people you've shared courses with (the database decides who). */
+export async function fetchFriendActivity(me: string): Promise<FriendActivity[]> {
+  const rows = await optionalRows(
+    client().from("user_activity").select("user_id,display_name,status,title,course_code,since").neq("user_id", me).order("since", { ascending: false }).limit(300)
+  );
+  return rows.flatMap((r) => {
+    const f = validateActivityRow(r);
+    return f ? [f] : [];
+  });
+}
+
+export async function publishActivity(userId: string, name: string, activity: MyActivity) {
+  const displayName = checkLength(name, LIMITS.displayName, "your name");
+  await run(
+    client()
+      .from("user_activity")
+      .upsert(
+        {
+          user_id: userId,
+          display_name: displayName,
+          status: activity.status,
+          title: activity.title.slice(0, LIMITS.postTitle),
+          course_code: activity.courseCode?.slice(0, LIMITS.courseCode) ?? null,
+          since: new Date(activity.since).toISOString(),
+        },
+        { onConflict: "user_id" }
+      )
+  );
+}
+
+export async function clearActivity(userId: string) {
+  await run(client().from("user_activity").delete().eq("user_id", userId));
 }
 
 // --- Shared notes ----------------------------------------------------------------------------

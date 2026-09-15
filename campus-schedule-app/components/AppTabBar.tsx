@@ -28,7 +28,7 @@ import { useCommandPalette } from "@/components/CommandPalette";
 import { SyncBadge } from "@/components/SyncBadge";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
-import { ThemeToggle, useTheme, useTimeOfDay } from "@/context/theme";
+import { ThemeToggle, useAppearance, useTheme, useTimeOfDay } from "@/context/theme";
 import type { TimeOfDay } from "@/lib/timeOfDay";
 import { useNow } from "@/lib/useNow";
 import { display12h } from "@/lib/schedule";
@@ -104,6 +104,7 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
   const { setOpen } = useCommandPalette();
   const openPalette = () => setOpen(true);
   const { scheme } = useTheme();
+  const { eka } = useAppearance().appearance;
 
   const items = state.routes.map((route, i) => {
     const { options } = descriptors[route.key];
@@ -159,12 +160,18 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
     return (
       <View className="border-border/70 w-[232px] border-r px-3 pb-4 pt-6">
         <View className="mb-7 px-2" accessibilityRole="header">
-          <Image
-            source={scheme === "dark" ? WORDMARK_DARK : WORDMARK_LIGHT}
-            style={{ width: 96, height: 40 }}
-            accessibilityLabel="isked"
-            accessibilityIgnoresInvertColors
-          />
+          {eka ? (
+            <Text accessibilityLabel="isked" className="font-display text-primary h-10 text-[32px] font-semibold leading-10">
+              isked<Text className="text-primary/70 font-display text-[18px]"> ♡</Text>
+            </Text>
+          ) : (
+            <Image
+              source={scheme === "dark" ? WORDMARK_DARK : WORDMARK_LIGHT}
+              style={{ width: 96, height: 40 }}
+              accessibilityLabel="isked"
+              accessibilityIgnoresInvertColors
+            />
+          )}
         </View>
         <Pressable
           onPress={openPalette}

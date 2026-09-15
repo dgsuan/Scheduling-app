@@ -14,6 +14,8 @@ query** (paste → Run). They're safe to re-run.
 | `0002_items_sharing_safety.sql` | Per-item sync, file storage, course sharing, class sections, account deletion, and every abuse limit below. |
 | `0003_sections_social.sql` | Section check-offs and comments, shared free times, read-only shared notes, the public deadlines page. |
 | `0004_push_and_feeds.sql` | Background reminders (web push) and calendar links kept in sync by the server. |
+| `0005_server_access.sql` | Lets the scheduled Edge Functions read the tables they need. |
+| `0006_activity.sql` | Task board Friend activity: share your Doing task with your sections and people you've shared courses with. |
 
 ## Background reminders & calendar links (optional)
 
