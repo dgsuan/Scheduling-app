@@ -70,7 +70,7 @@ try {
 
   await page.goto(URL("/import"), { waitUntil: "networkidle0" });
   await page.waitForSelector('[aria-label="Pasted CRS schedule"]');
-  check("Import shows the CRS paste box", (await text(page)).includes("Paste your schedule from CRS"));
+  check("Import shows the CRS paste box", (await text(page)).includes("Add your classes from CRS"));
 
   await page.click('[aria-label="Pasted CRS schedule"]');
   await page.keyboard.sendCharacter(PASTE);

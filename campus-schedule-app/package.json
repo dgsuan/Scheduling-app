@@ -60,8 +60,8 @@
     "typecheck": "tsc --noEmit",
     "functions:prepare": "node scripts/prepare-functions.mjs",
     "functions:deploy": "node scripts/prepare-functions.mjs && npx supabase functions deploy reminders --no-verify-jwt && npx supabase functions deploy calendar-feeds --no-verify-jwt",
-    "test:logic": "node scripts/prepare-functions.mjs && node --import ./tests/register.mjs tests/functions.test.ts && node --import ./tests/register.mjs tests/logic.test.ts && node --import ./tests/register.mjs tests/sync-crs.test.ts && node --import ./tests/register.mjs tests/insights.test.ts && node --import ./tests/register.mjs tests/semester.test.ts && node --import ./tests/register.mjs tests/social.test.ts",
-    "test:browser": "node tests/browser.test.mjs && node tests/image.test.mjs && node tests/settings.test.mjs && node tests/features.test.mjs && node tests/crs.test.mjs && node tests/planning.test.mjs && node tests/deadlines.test.mjs && node tests/guide.test.mjs",
+    "test:logic": "node scripts/prepare-functions.mjs && node --import ./tests/register.mjs tests/functions.test.ts && node --import ./tests/register.mjs tests/logic.test.ts && node --import ./tests/register.mjs tests/sync-crs.test.ts && node --import ./tests/register.mjs tests/insights.test.ts && node --import ./tests/register.mjs tests/semester.test.ts && node --import ./tests/register.mjs tests/social.test.ts && node --import ./tests/register.mjs tests/pdf.test.ts",
+    "test:browser": "node tests/browser.test.mjs && node tests/image.test.mjs && node tests/settings.test.mjs && node tests/features.test.mjs && node tests/crs.test.mjs && node tests/planning.test.mjs && node tests/deadlines.test.mjs && node tests/guide.test.mjs && node tests/form5.test.mjs",
     "test:security": "node tests/security.test.mjs",
     "test": "npm run typecheck && npm run test:logic && npm run export:web && npm run test:browser"
   },

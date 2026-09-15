@@ -75,7 +75,7 @@ try {
   await wait(900);
   let t = await text(page);
   check("Tour opens the guide", page.url().includes("/guide") && t.includes("New in this update") && t.includes("How it works"), page.url());
-  check("Getting started is open with its steps", t.includes("Paste your schedule from CRS") && t.includes("Set your semester dates"));
+  check("Getting started is open with its steps", t.includes("Upload Form 5 (PDF), or paste your schedule from CRS") && t.includes("Set your semester dates"));
   await page.screenshot({ path: path.join(SHOTS, "2-guide.png") });
 
   await clickText(page, "Class sections");
@@ -107,7 +107,7 @@ try {
   await clickText(page, "Not now");
   await wait(500);
   const seen = await page.evaluate(() => JSON.parse(localStorage.getItem("campus-schedule:settings:v1")).seenGuideVersion);
-  check("“Not now” hides it for good", !(await text(page)).includes("See what's new") && seen === 2, `seenGuideVersion=${seen}`);
+  check("“Not now” hides it for good", !(await text(page)).includes("See what's new") && seen === 3, `seenGuideVersion=${seen}`);
   await page.goto(URL("/settings"), { waitUntil: "networkidle0" });
   await wait(600);
   check("Guide is still reachable from Settings", (await text(page)).includes("Open the guide"));

@@ -2,11 +2,17 @@
 // banner on Home. Bump GUIDE_VERSION when WHATS_NEW changes so everyone sees
 // the banner once more.
 
-export const GUIDE_VERSION = 2;
+export const GUIDE_VERSION = 3;
 
 export type WhatsNewItem = { title: string; body: string; where: string; href?: string };
 
 export const WHATS_NEW: WhatsNewItem[] = [
+  {
+    title: "Upload your Form 5",
+    body: "Pick your Form 5 PDF and your classes, times and rooms fill in. It's read on your device.",
+    where: "Import → Upload Form 5 (PDF)",
+    href: "/import",
+  },
   {
     title: "Heavy-day warnings",
     body: "Home warns you when a day piles up, like 2 classes and 3 deadlines.",
@@ -99,7 +105,7 @@ export const GUIDE_SECTIONS: GuideSection[] = [
     summary: "Set up a semester in about a minute.",
     ordered: true,
     steps: [
-      { title: "Add your classes", body: "Import → Paste your schedule from CRS. Or add them one by one in Courses → Add course." },
+      { title: "Add your classes", body: "Import → Upload Form 5 (PDF), or paste your schedule from CRS. Or add them one by one in Courses → Add course." },
       { title: "Set your semester dates", body: "Settings → Semester. Classes then stop at the end of the term and skip holidays." },
       { title: "Sign in to sync", body: "Settings → Account & sync. Your data follows you between your phone and laptop." },
       { title: "Join your block's section", body: "Tasks → Class sections → Join with a code, so classmates' deadlines show up in your Tasks." },
@@ -192,7 +198,8 @@ export const GUIDE_SECTIONS: GuideSection[] = [
     title: "Import",
     summary: "Bring in classes from CRS and deadlines from UVLE.",
     steps: [
-      { title: "CRS schedule", body: "Copy the enlisted classes table from CRS and paste it. Courses, times and rooms fill in." },
+      { title: "Form 5 PDF", body: "Upload Form 5 (PDF) reads your classes straight from the file, on your device.", isNew: true },
+      { title: "CRS schedule", body: "Or copy the enlisted classes table from CRS and paste it. Courses, times and rooms fill in." },
       { title: "UVLE file", body: "In UVLE: Calendar → Export calendar → Export, then upload the .ics file." },
       { title: "Keep a link in sync", body: "Save your UVLE calendar link once and new deadlines keep arriving on their own.", isNew: true },
     ],

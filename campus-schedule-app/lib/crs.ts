@@ -101,15 +101,20 @@ const normalizeCode = (code: string) => code.replace(/\s+/g, " ").trim().toUpper
 const courseKey = (code: string, section?: string) => `${normalizeCode(code)}|${(section ?? "").trim().toUpperCase()}`;
 
 function cleanRoom(raw: string): string | undefined {
-  let s = raw.split(/[;\t]|\s{2,}/)[0] ?? "";
+  // Leading spaces first: text from a PDF puts two spaces before the next column.
+  let s = raw.replace(/^[\s,:-]+/, "").split(/[;\t]|\s{2,}/)[0] ?? "";
   s = s.replace(/^[\s,:-]+/, "").replace(CLASS_TYPE, "").trim();
   if (!s || /^(tba|tbd|n\/?a|-+)$/i.test(s)) return undefined;
   return s.slice(0, 60);
 }
 
+// Words that look like a course code next to a number but are page furniture
+// ("Form 5 (Certificate of Registration)", "Page 1", "Total units 10").
+const NOT_A_SUBJECT = /^(?:form|page|total|units?|year|sem|semester|room|rm|no|step|batch|ay|tel)$/i;
+
 function readCourse(prefix: string): { code: string; section?: string; title?: string; units?: number } | null {
   const m = COURSE.exec(prefix);
-  if (!m) return null;
+  if (!m || NOT_A_SUBJECT.test(m[1].split(" ")[0])) return null;
   const code = `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim();
   let rest = prefix.slice(m.index + m[0].length).trim();
   let section: string | undefined;

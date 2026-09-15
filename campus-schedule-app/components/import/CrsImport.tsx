@@ -1,7 +1,8 @@
+import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
-import { ClipboardPaste, TriangleAlert } from "lucide-react-native";
+import { ClipboardPaste, FileText, TriangleAlert } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Pressable, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 
 import { meetingLine } from "@/components/courses/CourseSharing";
 import { useToast } from "@/components/Toaster";
@@ -14,12 +15,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { colors } from "@/constants/theme";
 import { useCourses } from "@/context/store";
 import { parseCrs, planCrsImport, type CrsParseResult } from "@/lib/crs";
+import { extractPdfText } from "@/lib/pdfText";
 import { cn } from "@/lib/utils";
 
-// Paste the class table from UP CRS (enlisted classes / Form 5) and turn it
-// into courses. Parsed entirely on this device; nothing is uploaded.
+// Paste the class table from UP CRS (enlisted classes / Form 5), or upload
+// the Form 5 PDF, and turn it into courses. Everything is read on this
+// device; nothing is uploaded.
 
 const MAX_PASTE = 20_000;
+const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
 export function CrsImport() {
   const { courses, addCourse, updateCourse } = useCourses();
@@ -27,13 +31,42 @@ export function CrsImport() {
   const [text, setText] = useState("");
   const [result, setResult] = useState<CrsParseResult | null>(null);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfName, setPdfName] = useState<string | null>(null);
 
   const rows = useMemo(() => (result ? planCrsImport(result.courses, courses) : []), [result, courses]);
   const selected = rows.filter((r, i) => r.status !== "same" && !excluded.has(i));
 
-  const read = () => {
-    setResult(parseCrs(text.slice(0, MAX_PASTE)));
+  const read = (value = text) => {
+    setResult(parseCrs(value.slice(0, MAX_PASTE)));
     setExcluded(new Set());
+  };
+
+  const uploadPdf = async () => {
+    setPdfError(null);
+    const res = await DocumentPicker.getDocumentAsync({ type: ["application/pdf"], copyToCacheDirectory: false });
+    if (res.canceled) return;
+    const asset = res.assets[0];
+    if (asset.size && asset.size > MAX_PDF_BYTES) {
+      setPdfError("That PDF is over 10 MB. Form 5 PDFs are usually much smaller — check it's the right file.");
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      const data = asset.file ? await asset.file.arrayBuffer() : await (await fetch(asset.uri)).arrayBuffer();
+      const extracted = (await extractPdfText(data)).slice(0, MAX_PASTE);
+      if (!extracted.trim()) {
+        throw new Error("This PDF has no readable text — it may be a scanned image. Copy the table from CRS and paste it instead.");
+      }
+      setText(extracted);
+      setPdfName(asset.name);
+      read(extracted);
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   const apply = () => {
@@ -67,6 +100,7 @@ export function CrsImport() {
     });
     setResult(null);
     setText("");
+    setPdfName(null);
   };
 
   return (
@@ -74,11 +108,11 @@ export function CrsImport() {
       <View className="gap-3 p-4">
         <View className="flex-row items-center gap-2">
           <Icon as={ClipboardPaste} size={16} className="text-primary" />
-          <Text className="text-[15px] font-semibold">Paste your schedule from CRS</Text>
+          <Text className="text-[15px] font-semibold">Add your classes from CRS</Text>
         </View>
         <Text className="text-muted-foreground text-sm leading-5">
-          In CRS, open your enlisted classes (or Form 5), select the whole table, copy it, and paste it here. It&apos;s read on this device —
-          nothing is uploaded.
+          Upload your Form 5 PDF, or open your enlisted classes in CRS, copy the whole table, and paste it here. It&apos;s read on this
+          device — nothing is uploaded.
         </Text>
         <Textarea
           value={text}
@@ -94,21 +128,40 @@ export function CrsImport() {
           className="min-h-28 font-mono text-[13px]"
         />
         <View className="flex-row flex-wrap gap-2">
-          <Button onPress={read} disabled={!text.trim()}>
+          <Button onPress={() => read()} disabled={!text.trim()}>
             <Text>Read schedule</Text>
           </Button>
+          {Platform.OS === "web" ? (
+            <Button variant="outline" onPress={uploadPdf} disabled={pdfBusy}>
+              <Icon as={FileText} size={15} className="text-foreground" />
+              <Text>{pdfBusy ? "Reading PDF…" : "Upload Form 5 (PDF)"}</Text>
+            </Button>
+          ) : null}
           {text ? (
             <Button
               variant="ghost"
               onPress={() => {
                 setText("");
                 setResult(null);
+                setPdfName(null);
+                setPdfError(null);
               }}
             >
               <Text>Clear</Text>
             </Button>
           ) : null}
         </View>
+        {pdfName && result ? (
+          <Text className="text-muted-foreground text-xs leading-4">
+            Read from {pdfName}. The text is in the box above — fix anything that didn&apos;t come out right, then press Read schedule again.
+          </Text>
+        ) : null}
+        {pdfError ? (
+          <View className="border-destructive/40 bg-destructive/10 flex-row gap-2.5 rounded-lg border p-3" role="alert">
+            <Icon as={TriangleAlert} size={16} className="text-destructive mt-0.5" />
+            <Text className="flex-1 text-sm leading-5">{pdfError}</Text>
+          </View>
+        ) : null}
       </View>
 
       {result ? (
