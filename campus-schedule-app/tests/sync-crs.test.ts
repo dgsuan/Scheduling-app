@@ -191,7 +191,7 @@ test("CRS paste → courses", () => {
   const { courses, warnings } = parseCrs(text);
   assert.deepEqual(
     courses.map((c) => `${c.code}|${c.section ?? ""}`),
-    ["CMSC 21|T-3L", "MATH 21|THY2", "PE 2|WFX", "CMSC 199|X", "Soc Sci 1|WFR"]
+    ["CMSC 21|T-3L", "MATH 21|THY2", "PE 2|WFX", "Soc Sci 1|WFR"]
   );
   const cmsc = courses[0];
   assert.equal(cmsc.units, 3);
@@ -201,11 +201,9 @@ test("CRS paste → courses", () => {
   ]);
   assert.deepEqual(courses[1].meetings, [{ days: [1, 3, 5], start: "07:00", end: "08:00", room: "MB 101" }]);
   assert.deepEqual(courses[2].meetings, [{ days: [6], start: "07:00", end: "10:00", room: "Gym" }]);
-  assert.equal(courses[3].meetings.length, 0);
-  assert.equal(courses[3].title, undefined, "TBA isn't a title");
-  assert.ok(warnings.some((w) => w.startsWith("CMSC 199")), "TBA course is flagged");
-  assert.equal(courses[4].title, "Understanding Society");
-  assert.deepEqual(courses[4].meetings, [{ days: [3, 5], start: "14:30", end: "16:00", room: "AS 101" }], "schedule on the next line");
+  assert.ok(warnings.some((w) => w.startsWith("Skipped CMSC 199 X")), "TBA course is skipped with a note");
+  assert.equal(courses[3].title, "Understanding Society");
+  assert.deepEqual(courses[3].meetings, [{ days: [3, 5], start: "14:30", end: "16:00", room: "AS 101" }], "schedule on the next line");
   assert.deepEqual(parseCrs("hello\nnothing here").courses, []);
 });
 

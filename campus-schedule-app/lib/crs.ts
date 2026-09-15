@@ -33,7 +33,8 @@ const MERIDIEM = "(?:\\s*(a\\.?m\\.?|p\\.?m\\.?|a|p)(?![a-z]))?";
 const TIME = `(\\d{1,2})(?::(\\d{2}))?${MERIDIEM}`;
 const SEGMENT = new RegExp(`(?<![A-Za-z])((?:${DAY_WORD})+)\\.?\\s+${TIME}\\s*(?:-|–|—|to)\\s*${TIME}`, "gi");
 
-const COURSE = /(?:^|[\s|,;])(?:\d{4,6}\s+)?([A-Z][A-Za-z]{1,7}(?:\s[A-Z][a-z]{1,6})?)\s?(\d{1,3}(?:\.\d{1,2})?[A-Za-z]?)(?=\s|$|[,;|])/;
+// Subject: one to three words ("CMSC", "Soc Sci", "SOC SCI RES"); number may carry letters ("PE 2ICD").
+const COURSE = /(?:^|[\s|,;])(?:\d{4,6}\s+)?([A-Z][A-Za-z]{1,7}(?:\s(?:[A-Z][a-z]{1,6}|[A-Z]{2,8})){0,2})\s?(\d{1,3}(?:\.\d{1,2})?[A-Za-z]{0,4})(?=\s|$|[,;|])/;
 const SECTION = /^(?:(?=[A-Za-z0-9/-]*[\d-])[A-Za-z0-9][A-Za-z0-9/-]{0,11}|[A-Z]{1,4})$/;
 const CLASS_TYPE = /^(?:lec(?:ture)?|lab(?:oratory)?|rec(?:itation)?|dis(?:cussion)?|sem(?:inar)?)\b\.?\s*/i;
 
@@ -100,21 +101,25 @@ const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:
 const normalizeCode = (code: string) => code.replace(/\s+/g, " ").trim().toUpperCase();
 const courseKey = (code: string, section?: string) => `${normalizeCode(code)}|${(section ?? "").trim().toUpperCase()}`;
 
+// Form 5 prints its fee table beside the classes, so a PDF row can end with
+// "Mode:", "ITEM", "Library Fees 1,100.00" — none of that is a room.
+const NOT_A_ROOM = /:$|^(?:item|code|amount|cashier|register|mode|lab fee)$|\bfees?\b|\btuition\b|\d\.\d{2}\b/i;
+
 function cleanRoom(raw: string): string | undefined {
   // Leading spaces first: text from a PDF puts two spaces before the next column.
   let s = raw.replace(/^[\s,:-]+/, "").split(/[;\t]|\s{2,}/)[0] ?? "";
   s = s.replace(/^[\s,:-]+/, "").replace(CLASS_TYPE, "").trim();
-  if (!s || /^(tba|tbd|n\/?a|-+)$/i.test(s)) return undefined;
+  if (!s || /^(tba|tbd|n\/?a|-+)$/i.test(s) || NOT_A_ROOM.test(s)) return undefined;
   return s.slice(0, 60);
 }
 
 // Words that look like a course code next to a number but are page furniture
 // ("Form 5 (Certificate of Registration)", "Page 1", "Total units 10").
-const NOT_A_SUBJECT = /^(?:form|page|total|units?|year|sem|semester|room|rm|no|step|batch|ay|tel)$/i;
+const NOT_A_SUBJECT = /^(?:form|page|total|units?|year|sem|semester|room|rm|no|step|batch|ay|tel|block|lot|zip|phase)$/i;
 
 function readCourse(prefix: string): { code: string; section?: string; title?: string; units?: number } | null {
   const m = COURSE.exec(prefix);
-  if (!m || NOT_A_SUBJECT.test(m[1].split(" ")[0])) return null;
+  if (!m || m[1].split(" ").some((w) => NOT_A_SUBJECT.test(w))) return null;
   const code = `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim();
   let rest = prefix.slice(m.index + m[0].length).trim();
   let section: string | undefined;
@@ -208,9 +213,13 @@ export function parseCrs(text: string): CrsParseResult {
     });
   }
 
-  const list = [...courses.values()].slice(0, 30);
-  for (const c of list) if (!c.meetings.length) warnings.push(`${c.code} has no schedule listed (TBA?) — it'll be added without meeting times.`);
-  return { courses: list, warnings };
+  // No meeting time means it isn't something to put on the schedule: usually
+  // stray text (an address), sometimes a TBA class. Only mention real-looking classes.
+  const all = [...courses.values()];
+  for (const c of all) {
+    if (!c.meetings.length && c.section) warnings.push(`Skipped ${c.code} ${c.section} — no schedule listed (TBA?). Add it in Courses once it has a time.`);
+  }
+  return { courses: all.filter((c) => c.meetings.length).slice(0, 30), warnings };
 }
 
 // --- Planning the import ------------------------------------------------------
