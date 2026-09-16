@@ -119,6 +119,34 @@ try {
   check("No screen overflows sideways at any size", overflowing.length === 0, overflowing.slice(0, 6).join(", "));
   check("Toolbars and panels stay on screen", clippedPanels.length === 0, clippedPanels.slice(0, 6).join(", "));
 
+  // --- Bigger interface sizes (Settings → Interface size) ---------------------------
+  const zoomIssues = [];
+  for (const scale of [1.1, 1.25]) {
+    for (const w of [1280, 1536, 1920]) {
+      await page.setViewport({ width: w, height: 900 });
+      for (const route of ["/tasks", "/notes"]) {
+        await page.goto(URL(route), { waitUntil: "networkidle0" });
+        await page.evaluate((s) => {
+          const a = JSON.parse(localStorage.getItem("campus-schedule:appearance:v1") ?? "{}");
+          localStorage.setItem("campus-schedule:appearance:v1", JSON.stringify({ ...a, scale: s }));
+        }, scale);
+        await page.reload({ waitUntil: "networkidle0" });
+        await wait(800);
+        const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        const panel = await clipped(page, '[aria-label="Friend activity"]');
+        const dock = await clipped(page, '[aria-label="Notes toolbar"]');
+        if (over > 1) zoomIssues.push(`${Math.round(scale * 100)}% ${w}px ${route} overflows +${over}px`);
+        if (panel !== null && panel > 0) zoomIssues.push(`${Math.round(scale * 100)}% ${w}px friend activity clipped ${panel}px`);
+        if (dock !== null && dock > 0) zoomIssues.push(`${Math.round(scale * 100)}% ${w}px notes toolbar clipped ${dock}px`);
+      }
+    }
+  }
+  await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem("campus-schedule:appearance:v1") ?? "{}");
+    localStorage.setItem("campus-schedule:appearance:v1", JSON.stringify({ ...a, scale: 1 }));
+  });
+  check("Nothing is cut off at bigger interface sizes", zoomIssues.length === 0, zoomIssues.slice(0, 6).join(", "));
+
   // --- Around the width where Friend activity moves into its own column -------------
   const panelSizes = [];
   for (const w of [1180, 1239, 1240, 1366]) {

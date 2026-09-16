@@ -29,7 +29,7 @@ function colorFor(id: string) {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-function ActivityRow({ friend, now, you }: { friend: Friend; now: number; you?: boolean }) {
+function ActivityRow({ friend, now, you, compact }: { friend: Friend; now: number; you?: boolean; compact?: boolean }) {
   const doing = friend.status === "doing";
   const ago = timeAgo(friend.since, now);
   return (
@@ -39,7 +39,10 @@ function ActivityRow({ friend, now, you }: { friend: Friend; now: number; you?: 
       accessibilityLabel={`${friend.name}${you ? " (you)" : ""}: ${doing ? "doing" : `finished ${ago === "now" ? "just now" : `${ago} ago`}`} ${friend.title}${friend.courseCode ? `, ${friend.courseCode}` : ""}`}
     >
       <View>
-        <View className="size-10 items-center justify-center rounded-full" style={{ backgroundColor: colorFor(friend.userId) }}>
+        <View
+          className={cn("items-center justify-center rounded-full", compact ? "size-8" : "size-10")}
+          style={{ backgroundColor: colorFor(friend.userId) }}
+        >
           <Text className="text-[13px] font-semibold text-white">{initials(friend.name)}</Text>
         </View>
         {doing ? <View className="bg-primary border-background absolute -right-0.5 -top-0.5 size-3.5 rounded-full border-2" /> : null}
@@ -86,6 +89,9 @@ export function FriendActivity({ className }: { className?: string }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState(settings.activityName ?? "");
+  // The panel sizes itself from the room it actually gets.
+  const [panelW, setPanelW] = useState(0);
+  const compact = panelW > 0 && panelW < 250;
   useEffect(() => setNameDraft(settings.activityName ?? ""), [settings.activityName]);
 
   // Reload when your sections change: that changes whose activity you can see.
@@ -136,7 +142,12 @@ export function FriendActivity({ className }: { className?: string }) {
   if (!isSupabaseConfigured) return null;
 
   return (
-    <View className={cn("gap-3", className)} role="region" aria-label="Friend activity">
+    <View
+      className={cn("gap-3", className)}
+      role="region"
+      aria-label="Friend activity"
+      onLayout={(e) => setPanelW(e.nativeEvent.layout.width)}
+    >
       <View className="flex-row items-center gap-2">
         <Icon as={Users} size={16} className="text-muted-foreground" />
         <Text className="flex-1 text-[15px] font-semibold">Friend activity</Text>
@@ -183,14 +194,14 @@ export function FriendActivity({ className }: { className?: string }) {
             </View>
           ) : null}
 
-          {mine ? <ActivityRow friend={{ ...mine, userId, name }} now={now} you /> : null}
+          {mine ? <ActivityRow friend={{ ...mine, userId, name }} now={now} you compact={compact} /> : null}
 
           {error ? <Text className="text-destructive text-[12px]">{error}</Text> : null}
 
           {list.length ? (
             <View>
               {list.map((f) => (
-                <ActivityRow key={f.userId} friend={f} now={now} />
+                <ActivityRow key={f.userId} friend={f} now={now} compact={compact} />
               ))}
             </View>
           ) : loaded && !error ? (

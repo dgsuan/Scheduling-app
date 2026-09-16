@@ -273,10 +273,13 @@ export default function TasksScreen() {
   const focus = useFocus();
   const { toast } = useToast();
   const t = useTheme();
-  const { desktop, width } = useBreakpoint();
-  // The Friend activity column only appears when it (and the page) still fit.
-  const asideWidth = Math.round(Math.min(340, Math.max(264, width * 0.22)));
-  const showAside = isSupabaseConfigured && width >= 1240;
+  const { desktop } = useBreakpoint();
+  // Measured, never guessed: the space this screen actually has, whatever the
+  // window size, browser zoom or interface size. 0 until the first layout.
+  const [areaW, setAreaW] = useState(0);
+  const showAside = isSupabaseConfigured && areaW >= 1080;
+  const asideWidth = Math.round(Math.max(248, Math.min(340, areaW * 0.26)));
+  const boardStacked = areaW > 0 && areaW - (showAside ? asideWidth : 0) < 720;
   const now = useNow();
 
   const [title, setTitle] = useState("");
@@ -410,9 +413,15 @@ export default function TasksScreen() {
   ];
 
   return (
-    <View className={cn("flex-1", showAside && "flex-row")}>
+    <View
+      className={cn("flex-1", showAside && "flex-row overflow-hidden")}
+      onLayout={(e) => setAreaW(e.nativeEvent.layout.width)}
+    >
       <ScrollView
         className="flex-1"
+        // minWidth 0 lets this column shrink next to the Friend activity
+        // column instead of pushing it off the side of the window.
+        style={{ minWidth: 0 }}
         contentContainerClassName={cn(
           "w-full self-center pb-16",
           view === "board" ? "max-w-[1120px]" : "max-w-[760px]",
@@ -509,7 +518,7 @@ export default function TasksScreen() {
               tasks={tasks}
               courseById={courseById}
               now={now}
-              stacked={width < 820}
+              stacked={boardStacked}
               onMove={move}
               onEdit={(task) => setEditing({ mode: "edit", kind: "task", task })}
               onTogglePrivate={(task) => updateTask(task.id, { private: task.private ? undefined : true })}
@@ -584,7 +593,7 @@ export default function TasksScreen() {
       </ScrollView>
       {showAside ? (
         <ScrollView
-          style={{ width: asideWidth, flexGrow: 0, flexShrink: 0 }}
+          style={{ width: asideWidth, maxWidth: "40%", flexGrow: 0, flexShrink: 0 }}
           className="border-border/70 border-l"
           contentContainerClassName="px-5 pb-16 pt-10"
         >
