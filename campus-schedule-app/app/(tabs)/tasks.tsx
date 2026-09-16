@@ -273,7 +273,10 @@ export default function TasksScreen() {
   const focus = useFocus();
   const { toast } = useToast();
   const t = useTheme();
-  const { desktop } = useBreakpoint();
+  const { desktop, width } = useBreakpoint();
+  // The Friend activity column only appears when it (and the page) still fit.
+  const asideWidth = Math.round(Math.min(340, Math.max(264, width * 0.22)));
+  const showAside = isSupabaseConfigured && width >= 1240;
   const now = useNow();
 
   const [title, setTitle] = useState("");
@@ -407,7 +410,7 @@ export default function TasksScreen() {
   ];
 
   return (
-    <View className={cn("flex-1", desktop && isSupabaseConfigured && "flex-row")}>
+    <View className={cn("flex-1", showAside && "flex-row")}>
       <ScrollView
         className="flex-1"
         contentContainerClassName={cn(
@@ -506,7 +509,7 @@ export default function TasksScreen() {
               tasks={tasks}
               courseById={courseById}
               now={now}
-              stacked={!desktop}
+              stacked={width < 820}
               onMove={move}
               onEdit={(task) => setEditing({ mode: "edit", kind: "task", task })}
               onTogglePrivate={(task) => updateTask(task.id, { private: task.private ? undefined : true })}
@@ -577,10 +580,14 @@ export default function TasksScreen() {
             })}
           </LayoutAnimationConfig>
         )}
-        {!desktop ? <FriendActivity className="border-border/70 mt-10 border-t pt-6" /> : null}
+        {!showAside ? <FriendActivity className="border-border/70 mt-10 border-t pt-6" /> : null}
       </ScrollView>
-      {desktop && isSupabaseConfigured ? (
-        <ScrollView className="border-border/70 w-[300px] flex-none border-l" contentContainerClassName="px-5 pb-16 pt-10">
+      {showAside ? (
+        <ScrollView
+          style={{ width: asideWidth, flexGrow: 0, flexShrink: 0 }}
+          className="border-border/70 border-l"
+          contentContainerClassName="px-5 pb-16 pt-10"
+        >
           <FriendActivity />
         </ScrollView>
       ) : null}

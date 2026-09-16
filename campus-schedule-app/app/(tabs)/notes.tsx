@@ -79,6 +79,13 @@ const CANVAS_WIDTH = 1800;
 const CANVAS_HEIGHT = 2600;
 
 const CARD_W = 200;
+const TEXT_W = 168;
+// Sticky notes and to-do lists resize by their bottom-right corner.
+const MIN_CARD_W = 132;
+const MAX_CARD_W = 560;
+const MIN_TEXT_H = 56;
+const MAX_TEXT_H = 700;
+const DEFAULT_TEXT_H = 72;
 const IMG_MAX_W = 220;
 const IMG_MAX_H = 260;
 const INK_COLORS = ["#1A1A1A", "#FFFFFF", "#4F8CFF", "#E5484D", "#30A46C", "#F2A20C"];
@@ -245,24 +252,76 @@ function ItemBar({
   );
 }
 
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/** Bottom-right grip: drag to resize the card it sits in. */
+function ResizeHandle({
+  label,
+  onStart,
+  onResize,
+  onCommit,
+}: {
+  label: string;
+  onStart: () => void;
+  onResize: (dx: number, dy: number) => void;
+  onCommit: () => void;
+}) {
+  const gesture = useMemo(
+    () =>
+      Gesture.Pan()
+        // Starts at the first pixel, so it wins over the card's own drag gesture.
+        .runOnJS(true)
+        .minDistance(0)
+        .onBegin(onStart)
+        .onUpdate((e) => onResize(e.translationX, e.translationY))
+        .onEnd(onCommit)
+        .onFinalize(onCommit),
+    [onStart, onResize, onCommit]
+  );
+  return (
+    <GestureDetector gesture={gesture}>
+      <View
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        hitSlop={10}
+        className="web:cursor-nwse-resize"
+        style={cardStyles.cardHandle}
+      />
+    </GestureDetector>
+  );
+}
+
 function TextCard({
   item,
   update,
   remove,
+  onResizeStart,
+  onResizeEnd,
 }: {
   item: Extract<CanvasItem, { kind: "text" }>;
   update: (patch: Partial<CanvasItem>) => void;
   remove: () => void;
+  onResizeStart: () => void;
+  onResizeEnd: () => void;
 }) {
   const cycle = () => {
     const i = colors.noteColors.indexOf(item.color);
     update({ color: colors.noteColors[(i + 1) % colors.noteColors.length] });
   };
+
+  const [size, setSize] = useState({ w: item.width ?? TEXT_W, h: item.height ?? 0 });
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const origin = useRef(size);
+  useEffect(() => {
+    setSize({ w: item.width ?? TEXT_W, h: item.height ?? 0 });
+  }, [item.width, item.height]);
+
   return (
-    <View style={[cardStyles.card, { backgroundColor: item.color, width: 168 }]}>
+    <View testID={`canvas-card-${item.id}`} style={[cardStyles.card, { backgroundColor: item.color, width: size.w }]}>
       <ItemBar onCycleColor={cycle} onDelete={remove} />
       <TextInput
-        style={cardStyles.textInput}
+        style={[cardStyles.textInput, size.h ? { height: size.h } : null]}
         value={item.text}
         onChangeText={(text) => update({ text })}
         placeholder="Type…"
@@ -275,6 +334,23 @@ function TextCard({
           {item.endDate ? ` – ${formatShortDate(item.endDate)}` : ""}
         </Text>
       ) : null}
+      <ResizeHandle
+        label="Resize note"
+        onStart={() => {
+          origin.current = { w: sizeRef.current.w, h: sizeRef.current.h || DEFAULT_TEXT_H };
+          onResizeStart();
+        }}
+        onResize={(dx, dy) =>
+          setSize({
+            w: clamp(origin.current.w + dx, MIN_CARD_W, MAX_CARD_W),
+            h: clamp(origin.current.h + dy, MIN_TEXT_H, MAX_TEXT_H),
+          })
+        }
+        onCommit={() => {
+          update({ width: Math.round(sizeRef.current.w), height: Math.round(sizeRef.current.h || DEFAULT_TEXT_H) });
+          onResizeEnd();
+        }}
+      />
     </View>
   );
 }
@@ -283,18 +359,27 @@ function TodoCard({
   item,
   update,
   remove,
+  onResizeStart,
+  onResizeEnd,
 }: {
   item: Extract<CanvasItem, { kind: "todo" }>;
   update: (patch: Partial<CanvasItem>) => void;
   remove: () => void;
+  onResizeStart: () => void;
+  onResizeEnd: () => void;
 }) {
   const setEntries = (entries: TodoEntry[]) => update({ entries });
   const cycle = () => {
     const i = colors.noteColors.indexOf(item.color);
     update({ color: colors.noteColors[(i + 1) % colors.noteColors.length] });
   };
+  const [width, setWidth] = useState(item.width ?? CARD_W);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const origin = useRef(width);
+  useEffect(() => setWidth(item.width ?? CARD_W), [item.width]);
   return (
-    <View style={[cardStyles.card, { backgroundColor: item.color, width: CARD_W }]}>
+    <View testID={`canvas-card-${item.id}`} style={[cardStyles.card, { backgroundColor: item.color, width }]}>
       <ItemBar onCycleColor={cycle} onDelete={remove} />
       <TextInput
         style={cardStyles.todoTitle}
@@ -341,6 +426,18 @@ function TodoCard({
       >
         <Text style={cardStyles.todoAddText}>+ Add item</Text>
       </Pressable>
+      <ResizeHandle
+        label="Resize to-do"
+        onStart={() => {
+          origin.current = widthRef.current;
+          onResizeStart();
+        }}
+        onResize={(dx) => setWidth(clamp(origin.current + dx, MIN_CARD_W, MAX_CARD_W))}
+        onCommit={() => {
+          update({ width: Math.round(widthRef.current) });
+          onResizeEnd();
+        }}
+      />
     </View>
   );
 }
@@ -930,6 +1027,8 @@ function CanvasView({
   const { toast } = useToast();
 
   const [drawing, setDrawing] = useState(false);
+  /** While a card is being resized, its drag gesture stays out of the way. */
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const [ink, setInk] = useState(INK_COLORS[0]);
   const [penWidth, setPenWidth] = useState(4);
   const [inkPickerOpen, setInkPickerOpen] = useState(false);
@@ -969,16 +1068,21 @@ function CanvasView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusItemId, ready]);
 
-  const centerXY = () => ({
-    x: Math.min(
-      Math.max(0, scroll.current.x + viewport.current.w / 2 - CARD_W / 2),
-      CANVAS_WIDTH - CARD_W
-    ),
-    y: Math.min(
-      Math.max(0, scroll.current.y + viewport.current.h / 2 - 60),
-      CANVAS_HEIGHT - 120
-    ),
-  });
+  // Middle of what you're looking at, stepped a little each time so new
+  // items cascade instead of landing on top of each other.
+  const centerXY = () => {
+    const step = (items.length % 6) * 26;
+    return {
+      x: Math.min(
+        Math.max(0, scroll.current.x + viewport.current.w / 2 - CARD_W / 2 + step),
+        CANVAS_WIDTH - CARD_W
+      ),
+      y: Math.min(
+        Math.max(0, scroll.current.y + viewport.current.h / 2 - 60 + step),
+        CANVAS_HEIGHT - 120
+      ),
+    };
+  };
 
   const addText = () =>
     addItem({ kind: "text", text: "", color: colors.noteColors[0], ...centerXY() });
@@ -1109,7 +1213,7 @@ function CanvasView({
               <Draggable
                 key={item.id}
                 item={item}
-                disabled={drawing}
+                disabled={drawing || resizingId === item.id}
                 isNew={!!initialIds.current && !initialIds.current.has(item.id)}
                 highlight={highlightId === item.id}
                 onMoveEnd={(x, y) => handleItemDrop(item, x, y)}
@@ -1119,12 +1223,16 @@ function CanvasView({
                     item={item}
                     update={(p) => updateItem(item.id, p)}
                     remove={() => removeItem(item.id)}
+                    onResizeStart={() => setResizingId(item.id)}
+                    onResizeEnd={() => setResizingId(null)}
                   />
                 ) : item.kind === "todo" ? (
                   <TodoCard
                     item={item}
                     update={(p) => updateItem(item.id, p)}
                     remove={() => removeItem(item.id)}
+                    onResizeStart={() => setResizingId(item.id)}
+                    onResizeEnd={() => setResizingId(null)}
                   />
                 ) : item.kind === "image" ? (
                   <ImageCard
@@ -1170,15 +1278,24 @@ function CanvasView({
       {/* Floating tool dock — out of the way of the page, close to the canvas. */}
       {!drawing && !selectedDrawing ? (
         <View pointerEvents="box-none" style={styles.toolDock}>
-          <View className="bg-card border-border flex-row items-center gap-0.5 rounded-xl border p-1 shadow-lg shadow-black/10">
-            <ToolButton icon={TypeIcon} label="Text" onPress={addText} />
-            <ToolButton icon={ListTodo} label="To-do" onPress={addTodo} />
-            <ToolButton icon={ImageIcon} label="Image" onPress={addImage} />
-            <ToolButton icon={Paperclip} label="File" onPress={addDocument} />
-            <ToolButton icon={FolderIcon} label="Folder" onPress={addFolder} />
-            <View className="bg-border mx-1 h-7 w-px" />
-            <ToolButton icon={PenLine} label="Draw" onPress={toggleDraw} />
-          </View>
+          {/* Narrow windows: the dock scrolls sideways instead of running off screen. */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.dockScroll}
+            contentContainerStyle={styles.dockScrollContent}
+            accessibilityLabel="Notes toolbar"
+          >
+            <View className="bg-card border-border flex-row items-center gap-0.5 rounded-xl border p-1 shadow-lg shadow-black/10">
+              <ToolButton icon={TypeIcon} label="Text" onPress={addText} />
+              <ToolButton icon={ListTodo} label="To-do" onPress={addTodo} />
+              <ToolButton icon={ImageIcon} label="Image" onPress={addImage} />
+              <ToolButton icon={Paperclip} label="File" onPress={addDocument} />
+              <ToolButton icon={FolderIcon} label="Folder" onPress={addFolder} />
+              <View className="bg-border mx-1 h-7 w-px" />
+              <ToolButton icon={PenLine} label="Draw" onPress={toggleDraw} />
+            </View>
+          </ScrollView>
         </View>
       ) : null}
 
@@ -1532,6 +1649,17 @@ const cardStyles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     elevation: 2,
   },
+  cardHandle: {
+    position: "absolute",
+    right: 3,
+    bottom: 3,
+    width: 14,
+    height: 14,
+    borderBottomRightRadius: 8,
+    borderRightWidth: 2,
+    borderBottomWidth: 2,
+    borderColor: "rgba(0,0,0,0.28)",
+  },
   noteDate: {
     fontSize: 11,
     color: "rgba(0,0,0,0.5)",
@@ -1580,6 +1708,9 @@ const makeStyles = (t: Palette) =>
       paddingHorizontal: spacing.md,
       alignItems: "center",
     },
+
+    dockScroll: { alignSelf: "stretch", flexGrow: 0 },
+    dockScrollContent: { flexGrow: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: spacing.xs },
 
     canvasScroll: { flex: 1 },
     canvas: { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, backgroundColor: t.surface },

@@ -65,12 +65,17 @@ export type CanvasItem =
       /** Optional ISO dates — a dated note also shows on the Calendar. */
       date?: string;
       endDate?: string;
+      /** Size after dragging the note's corner. */
+      width?: number;
+      height?: number;
     })
   | (CanvasBase & {
       kind: "todo";
       title: string;
       color: string;
       entries: TodoEntry[];
+      /** Width after dragging the list's corner. */
+      width?: number;
     })
   | (CanvasBase & {
       kind: "image";

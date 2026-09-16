@@ -46,7 +46,7 @@ function ActivityRow({ friend, now, you }: { friend: Friend; now: number; you?: 
       </View>
       <View className="min-w-0 flex-1 gap-0.5">
         <View className="flex-row items-center gap-2">
-          <Text className="flex-1 text-[14px] font-semibold" numberOfLines={1}>
+          <Text className="min-w-0 flex-1 text-[14px] font-semibold" numberOfLines={1}>
             {friend.name}
             {you ? <Text className="text-muted-foreground text-[12px] font-normal"> (you)</Text> : null}
           </Text>
@@ -56,7 +56,7 @@ function ActivityRow({ friend, now, you }: { friend: Friend; now: number; you?: 
             <Text className="text-muted-foreground text-[12px] tabular-nums">{ago}</Text>
           )}
         </View>
-        <Text className="text-foreground/80 text-[13px]" numberOfLines={1}>
+        <Text className="text-foreground/80 text-[13px]" numberOfLines={2}>
           {doing ? "" : "Finished · "}
           {friend.title}
         </Text>
