@@ -247,7 +247,8 @@ export const DEFAULT_SETTINGS: PlannerSettings = {
 // --- Grades ------------------------------------------------------------
 
 export type GradeComponent = { id: string; name: string; weight: number };
-export type GradeEntry = { id: string; componentId: string; name: string; score: number; total: number };
+// An omitted score is pending; an explicit zero is a released grade.
+export type GradeEntry = { id: string; componentId: string; name: string; score?: number; total: number };
 export type CourseGrades = {
   components: GradeComponent[];
   entries: GradeEntry[];

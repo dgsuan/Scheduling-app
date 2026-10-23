@@ -74,9 +74,9 @@ export type CourseStanding = {
 
 export function courseStanding(g: CourseGrades | undefined): CourseStanding {
   const components = (g?.components ?? []).map((component) => {
-    const entries = (g?.entries ?? []).filter((e) => e.componentId === component.id && e.total > 0);
+    const entries = (g?.entries ?? []).filter((e) => e.componentId === component.id && e.total > 0 && e.score != null);
     const total = entries.reduce((s, e) => s + e.total, 0);
-    const score = entries.reduce((s, e) => s + e.score, 0);
+    const score = entries.reduce((s, e) => s + e.score!, 0);
     return { component, percent: total > 0 ? (score / total) * 100 : null, count: entries.length };
   });
   const graded = components.filter((c) => c.percent != null && c.component.weight > 0);

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { dayLoads, defaultTarget, describeLoad, focusThisWeek, gradeTargets } from "@/lib/insights";
 import { canvasOptions } from "@/lib/noteLinks";
 import { DEFAULT_RULES } from "@/lib/schedule";
+import { computeGwa, courseStanding } from "@/lib/grades";
+import type { Course, CourseGrades } from "@/context/store";
 
 let passed = 0;
 const test = (name: string, fn: () => void) => {
@@ -22,6 +24,31 @@ const comps = [
 ];
 const entry = (componentId: string, score: number, total: number) => ({ id: `${componentId}${score}`, componentId, name: "x", score, total });
 const need = (plan: ReturnType<typeof gradeTargets>, grade: number) => plan!.targets.find((t) => t.grade === grade)!;
+
+test("pending quizzes exclude unreturned points but remain in projections after save", () => {
+  const g: CourseGrades = JSON.parse(JSON.stringify({
+    components: [{ id: "q", name: "Quizzes", weight: 100 }],
+    entries: [entry("q", 18, 30), entry("q", 20, 30),
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `pending${i}`, componentId: "q", name: "Quiz", total: 30 }))],
+  }));
+  const standing = courseStanding(g);
+  assert.equal(standing.percent, 38 / 60 * 100);
+  assert.equal(standing.components[0].count, 2);
+  const plan = gradeTargets(g)!;
+  assert.equal(plan.remainingWeight, 75);
+  assert.ok(Math.abs(need(plan, 3).need! - (144 - 38) / 180 * 100) < 1e-9);
+  const courses = [{ id: "course", units: 3 }] as Course[];
+  assert.equal(computeGwa(courses, { course: g }).gwa, standing.estimatedGrade);
+  g.entries[2].score = 0;
+  assert.ok(Math.abs(courseStanding(g).percent! - 38 / 90 * 100) < 1e-9, "explicit zero counts");
+  assert.equal(gradeTargets(g)!.remainingWeight, 62.5);
+  g.entries.forEach((e) => { delete e.score; });
+  assert.equal(courseStanding(g).percent, null);
+  assert.equal(computeGwa(courses, { course: g }).gwa, null);
+  assert.equal(gradeTargets(g)!.remainingWeight, 100);
+  g.finalGrade = 1.5;
+  assert.equal(computeGwa(courses, { course: g }).gwa, 1.5, "recorded final grade overrides estimates");
+});
 
 test("grade targets: what's needed on the rest", () => {
   // 90% on quizzes and requirements, no exams yet.

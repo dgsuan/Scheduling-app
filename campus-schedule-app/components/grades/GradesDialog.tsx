@@ -63,19 +63,19 @@ function NumberField({
   );
 }
 
-/** "What do I need for a 1.75?" — the average needed on components with no scores yet. */
+/** "What do I need for a 1.75?" — the average needed on pending assessments. */
 function GradeTargetRow({ g, estimated }: { g: CourseGrades; estimated: number | null }) {
   const [picked, setPicked] = useState<number | undefined>(undefined);
   const plan = gradeTargets(g);
   if (!plan) return null;
   const grade = picked ?? defaultTarget(plan, estimated);
   const target = plan.targets.find((t) => t.grade === grade) ?? plan.targets[0];
-  const left = plan.remaining.map((r) => `${r.name} (${r.weight}%)`).join(", ");
+  const left = plan.remaining.map((r) => `${r.name} (${Number(r.weight.toFixed(2))}% of course)`).join(", ");
   const sentence =
     target.need == null
       ? target.status === "secured"
-        ? `Every component has scores, and you're already at ${formatGrade(target.grade)} or better.`
-        : `Every component has scores, so ${formatGrade(target.grade)} isn't possible unless scores change.`
+        ? `All listed assessments are graded, and you're at ${formatGrade(target.grade)} or better.`
+        : `With the listed grades, ${formatGrade(target.grade)} isn't possible. Add pending assessments if more grades are coming.`
       : target.status === "secured"
         ? `You've locked in at least ${formatGrade(target.grade)}, even with 0% on ${left}.`
         : target.status === "out-of-reach"
@@ -98,7 +98,7 @@ function GradeTargetRow({ g, estimated }: { g: CourseGrades; estimated: number |
       <Text className={cn("text-sm leading-5", target.status === "out-of-reach" && "text-destructive")}>{sentence}</Text>
       {plan.remaining.length ? (
         <Text className="text-muted-foreground text-xs leading-4">
-          Counts components with no scores yet as what&apos;s left. A component with some scores already counts as finished.
+          Uses pending points and empty components. Add all expected assessments and their total points for an accurate projection. The required average is weighted by each component&apos;s remaining share.
         </Text>
       ) : null}
     </View>
@@ -182,6 +182,9 @@ function GradeBook({ course }: { course: Course }) {
         </Text>
       ) : null}
       {!s.isFinal ? <GradeTargetRow g={g} estimated={s.estimatedGrade} /> : null}
+      <Text className="text-muted-foreground text-xs leading-4">
+        Waiting for a grade? Leave its score blank (Pending) and enter the total points. Pending scores don&apos;t lower your standing or running GWA. Enter 0 only for an actual zero; clear old placeholder zeros to mark them pending.
+      </Text>
 
       <ScrollView style={{ maxHeight: Math.max(240, height * 0.5) }} contentContainerClassName="gap-4">
         {g.components.map((comp) => {
@@ -224,6 +227,11 @@ function GradeBook({ course }: { course: Course }) {
                 </Button>
               </View>
               <View className="border-border/60 gap-1.5 border-t px-3 py-2">
+                {entries.length > 0 ? (
+                  <Text className="text-muted-foreground text-xs">
+                    {entries.filter((e) => e.score != null && e.total > 0).length} graded · {entries.filter((e) => e.score == null).length} pending
+                  </Text>
+                ) : null}
                 {entries.map((e) => (
                   <View key={e.id} className="flex-row items-center gap-2">
                     <Input
@@ -234,10 +242,11 @@ function GradeBook({ course }: { course: Course }) {
                       className="h-9 flex-1 text-sm"
                     />
                     <NumberField
-                      value={e.score}
-                      onChange={(score) => save({ ...g, entries: g.entries.map((x) => (x.id === e.id ? { ...x, score: score ?? 0 } : x)) })}
+                      value={e.score ?? undefined}
+                      onChange={(score) => save({ ...g, entries: g.entries.map((x) => (x.id === e.id ? { ...x, score } : x)) })}
+                      placeholder="Pending"
                       label={`${e.name || "Score"} points earned`}
-                      className="w-16 text-right"
+                      className="w-20 text-right"
                     />
                     <Text className="text-muted-foreground text-sm">/</Text>
                     <NumberField
@@ -266,13 +275,13 @@ function GradeBook({ course }: { course: Course }) {
                       ...g,
                       entries: [
                         ...g.entries,
-                        { id: uid("ge"), componentId: comp.id, name: `${singular(comp.name)} ${entries.length + 1}`, score: 0, total: 100 },
+                        { id: uid("ge"), componentId: comp.id, name: `${singular(comp.name)} ${entries.length + 1}`, total: entries.at(-1)?.total || 100 },
                       ],
                     })
                   }
                 >
                   <Icon as={Plus} size={14} className="text-primary" />
-                  <Text className="text-primary">Add score</Text>
+                  <Text className="text-primary">Add assessment</Text>
                 </Button>
               </View>
             </View>

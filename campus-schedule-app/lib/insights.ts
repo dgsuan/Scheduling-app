@@ -22,24 +22,32 @@ export type GradeTarget = {
 };
 
 export type GradeTargetPlan = {
-  /** Components with no scores yet — what's still ahead. */
+  /** Remaining course weight from pending points or empty components. */
   remaining: { name: string; weight: number }[];
   remainingWeight: number;
   targets: GradeTarget[];
 };
 
 /**
- * For each grade on the UP scale, the average you'd need on the components
- * that have no scores yet. Components that already have some scores count as
- * finished (the standing can't know how many more quizzes are coming).
+ * For each grade, calculate the weighted average needed on pending points.
+ * Listed totals define the planned size of each component. Empty components
+ * remain entirely pending; add placeholders to account for future assessments.
  */
 export function gradeTargets(g: CourseGrades | undefined): GradeTargetPlan | null {
   const s = courseStanding(g);
   if (!g || s.totalWeight <= 0) return null;
-  const earned = s.components.reduce((sum, c) => sum + (c.percent != null ? c.percent * c.component.weight : 0), 0);
-  const remaining = s.components
-    .filter((c) => c.percent == null && c.component.weight > 0)
-    .map((c) => ({ name: c.component.name.trim() || "Unnamed", weight: c.component.weight }));
+  let earned = 0;
+  const remaining: GradeTargetPlan["remaining"] = [];
+  for (const component of g.components) {
+    if (component.weight <= 0) continue;
+    const entries = g.entries.filter((e) => e.componentId === component.id && e.total > 0);
+    const total = entries.reduce((sum, e) => sum + e.total, 0);
+    const pending = entries.reduce((sum, e) => sum + (e.score == null ? e.total : 0), 0);
+    const score = entries.reduce((sum, e) => sum + (e.score ?? 0), 0);
+    if (total > 0) earned += (score / total) * 100 * component.weight;
+    const weight = total > 0 ? component.weight * pending / total : component.weight;
+    if (weight > 0) remaining.push({ name: component.name.trim() || "Unnamed", weight });
+  }
   const remainingWeight = remaining.reduce((sum, r) => sum + r.weight, 0);
   const targets = UP_SCALE.map(([minPercent, grade]): GradeTarget => {
     const missing = minPercent * s.totalWeight - earned;

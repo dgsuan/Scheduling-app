@@ -187,7 +187,7 @@ const VALIDATORS: Record<CollectionName, (c: ReturnType<typeof makeChecker>, v: 
       });
       c.arr(`${p}.entries`, g.entries, (ep, e) => {
         c.str(`${ep}.componentId`, e.componentId);
-        c.num(`${ep}.score`, e.score);
+        if (e.score != null) c.num(`${ep}.score`, e.score);
         c.num(`${ep}.total`, e.total);
       });
     }
