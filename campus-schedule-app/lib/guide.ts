@@ -2,11 +2,17 @@
 // banner on Home. Bump GUIDE_VERSION when WHATS_NEW changes so everyone sees
 // the banner once more.
 
-export const GUIDE_VERSION = 4;
+export const GUIDE_VERSION = 5;
 
 export type WhatsNewItem = { title: string; body: string; where: string; href?: string };
 
 export const WHATS_NEW: WhatsNewItem[] = [
+  {
+    title: "Sticky view",
+    body: "Keep a note, today's classes and tasks in a compact view. On supported desktop browsers, float it above other windows while the app page stays open. On phones, use the compact view or installed-app shortcut where available; it isn't a native home-screen widget.",
+    where: "Notes → Sticky view, or Settings → Install",
+    href: "/sticky",
+  },
   {
     title: "Task board & Friend activity",
     body: "Drag tasks between Not started, Doing and Finished. Share what you're doing with your class sections and people you've shared courses with.",

@@ -236,6 +236,8 @@ export type PlannerSettings = {
   shareActivity?: boolean;
   /** Name shown in Friend activity (defaults to a section display name). */
   activityName?: string;
+  /** Text note selected in the compact sticky view. */
+  stickyNoteId?: string;
 };
 
 export const DEFAULT_SETTINGS: PlannerSettings = {
@@ -289,7 +291,7 @@ type StoreShape = {
   removeCourse: (id: string) => void;
 
   canvases: Record<string, CanvasData>;
-  addItem: (canvasId: string, item: NewCanvasItem) => void;
+  addItem: (canvasId: string, item: NewCanvasItem) => string;
   updateItem: (canvasId: string, id: string, patch: Partial<CanvasItem>) => void;
   removeItem: (canvasId: string, id: string) => void;
   restoreItem: (canvasId: string, item: CanvasItem) => void;
@@ -588,10 +590,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addItem = useCallback(
     (canvasId: string, item: NewCanvasItem) => {
+      const id = uid("item");
       mutateCanvas(canvasId, (c) => ({
         ...c,
-        items: [...c.items, { ...(item as CanvasItem), id: uid("item") }],
+        items: [...c.items, { ...(item as CanvasItem), id }],
       }));
+      return id;
     },
     [mutateCanvas]
   );

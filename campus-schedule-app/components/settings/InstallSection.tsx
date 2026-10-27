@@ -1,4 +1,5 @@
 import { CheckCircle2, Smartphone } from "lucide-react-native";
+import { router } from "expo-router";
 import { Platform, View } from "react-native";
 
 import { SettingsRow, SettingsSection } from "@/components/settings/SettingsSection";
@@ -23,7 +24,7 @@ export function InstallSection() {
 
   return (
     <SettingsSection title="Install" description="Use Isked like a regular app on your phone or laptop.">
-      <SettingsRow label="Install as an app" hint={hint} last>
+      <SettingsRow label="Install as an app" hint={hint}>
         {install.installed ? (
           <View className="flex-row items-center gap-1.5">
             <Icon as={CheckCircle2} size={16} className="text-success" />
@@ -35,6 +36,11 @@ export function InstallSection() {
             <Text>Install app</Text>
           </Button>
         ) : null}
+      </SettingsRow>
+      <SettingsRow label="Sticky view" hint="A small note, today's classes and tasks. Float it above other windows on supported desktop browsers. Phone home-screen widgets need a native app." last>
+        <Button size="sm" variant="outline" onPress={() => router.push("/sticky")}>
+          <Text>Open sticky view</Text>
+        </Button>
       </SettingsRow>
     </SettingsSection>
   );

@@ -49,6 +49,20 @@ self.addEventListener("fetch", (event) => {
   }
 
   const sameOrigin = url.origin === self.location.origin;
+  // Installed apps must be able to discover updated icon shortcuts.
+  // Unlike hashed assets, the manifest keeps the same URL across releases.
+  if (sameOrigin && url.pathname.endsWith("/manifest.webmanifest")) {
+    event.respondWith(
+      fetch(req).then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          event.waitUntil(caches.open(CACHE).then((cache) => cache.put(req, copy)));
+        }
+        return res;
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
   const cacheable =
     (sameOrigin && (url.pathname.includes("/_expo/static/") || /\.(png|ico|webmanifest|ttf)$/.test(url.pathname))) ||
     url.host === "fonts.googleapis.com" ||

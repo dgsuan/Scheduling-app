@@ -52,6 +52,7 @@ import { PopIn } from "@/components/PopIn";
 import { useToast } from "@/components/Toaster";
 import { isEphemeralUri, pickedImageToStored } from "@/lib/imageData";
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Text as UIText } from "@/components/ui/text";
 import { formatShortDate } from "@/lib/calendar";
@@ -938,7 +939,11 @@ export default function NotesScreen() {
   return (
     <View style={styles.screen}>
       <View style={[styles.header, desktop && { paddingHorizontal: 40, paddingTop: 40 }]}>
-        <ScreenHeader title="Notes" subtitle="An open canvas — put anything, anywhere." />
+        <ScreenHeader title="Notes" subtitle="An open canvas — put anything, anywhere." right={Platform.OS === "web" ? (
+          <Button variant="outline" size="sm" onPress={() => router.push("/sticky")}>
+            <UIText>Sticky view</UIText>
+          </Button>
+        ) : undefined} />
       </View>
 
       {/* Notebook switcher: quiet underline tabs rather than loud pills. */}

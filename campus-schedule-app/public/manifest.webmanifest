@@ -15,6 +15,13 @@
   ],
   "shortcuts": [
     {
+      "name": "Sticky view",
+      "short_name": "Sticky view",
+      "description": "Your note, today's classes and upcoming tasks.",
+      "url": "./sticky",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
       "name": "Add a task",
       "short_name": "Add task",
       "url": "./tasks?new=1",

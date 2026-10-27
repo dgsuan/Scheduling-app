@@ -43,6 +43,26 @@ This starts one dev server for both platforms. From there, press:
 
 ## Run it on the web / host on GitHub Pages
 
+### Sticky view
+
+Open **Notes → Sticky view** or **Settings → Install → Open sticky view**.
+Choose an existing text note or create one, edit it directly, see today's
+classes, and check off tasks. Notes and task changes use the normal app store,
+so they save offline and use the existing account sync when enabled.
+
+On desktop browsers with Document Picture-in-Picture support (such as supported
+Chrome/Edge versions), **Float on desktop** opens an always-on-top window.
+Keep the originating app page open: closing, reloading, or leaving it closes
+the floating window. **Dock back** returns the view to the app. HTTPS or
+localhost is required. Unsupported browsers retain the compact view.
+
+The installed app also advertises a **Sticky view** icon shortcut. Its display
+depends on the browser and OS, and existing installations may need their
+manifest refreshed. On phones this opens the compact app view; it is not a
+live Android/iOS home-screen widget, which requires native platform support.
+
+### Web build
+
 The same codebase also builds to a static website via `react-native-web`.
 
 ```bash
