@@ -102,6 +102,7 @@ function PaletteBody({ close }: { close: () => void }) {
       { id: "a-new-task", group: "Actions", title: "New task", icon: Plus, keywords: "add create todo", run: go(() => router.navigate({ pathname: "/tasks", params: { new: "1" } })) },
       { id: "a-today", group: "Actions", title: "Go to today in Calendar", icon: CalendarDays, keywords: "calendar today", run: go(() => router.navigate({ pathname: "/calendar", params: { today: "1" } })) },
       { id: "a-schedule", group: "Actions", title: "Go to Schedule", icon: CalendarClock, keywords: "home now next class", run: go(() => router.navigate("/")) },
+      { id: "a-habits", group: "Actions", title: "Go to Habits", icon: ListChecks, keywords: "momentum habit tracker check in", run: go(() => router.navigate("/habits")) },
       { id: "a-tasks", group: "Actions", title: "Go to Tasks", icon: ListChecks, run: go(() => router.navigate("/tasks")) },
       { id: "a-notes", group: "Actions", title: "Go to Notes", icon: NotebookPen, run: go(() => router.navigate("/notes")) },
       { id: "a-courses", group: "Actions", title: "Go to Courses & grades", icon: BookOpen, keywords: "gwa grades", run: go(() => router.navigate("/courses")) },

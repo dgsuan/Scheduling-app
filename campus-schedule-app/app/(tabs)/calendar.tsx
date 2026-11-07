@@ -1,3 +1,4 @@
+import { useHabits } from "@/context/store";
 import { ChevronLeft, ChevronRight, Share } from "lucide-react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -85,6 +86,8 @@ function Legend() {
 
 export default function CalendarScreen() {
   const { courses } = useCourses();
+  const { data: habitData } = useHabits();
+  const [showHabits, setShowHabits] = useState(true);
   const { tasks, updateTask } = useTasks();
   const { events } = useEvents();
   const { notes } = useDatedNotes();
@@ -102,8 +105,8 @@ export default function CalendarScreen() {
   const rules = useScheduleRules();
   const { cancelClass, restoreClass } = useCancellations();
   const sources = useMemo(
-    () => ({ courses, tasks, events, notes, rules }),
-    [courses, tasks, events, notes, rules]
+    () => ({ courses, tasks, events, notes, rules, habits: showHabits ? habitData : undefined }),
+    [courses, tasks, events, notes, rules, habitData, showHabits]
   );
   const monthHolidays = useMemo(
     () => getHolidays(year).filter((h) => Number(h.date.slice(5, 7)) === month + 1),
@@ -279,6 +282,7 @@ export default function CalendarScreen() {
           />
         )}
       </View>
+      <Button variant="outline" className="mt-3 self-start" onPress={() => setShowHabits(!showHabits)}><Text>{showHabits ? "Hide habits" : "Show habits"}</Text></Button>
       {view === "month" ? <Legend /> : null}
 
       {view === "month" ? (

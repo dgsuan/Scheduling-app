@@ -43,6 +43,8 @@ const mb = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(bytes < 1024 * 
 
 function summaryLines(s: BackupSummary): string {
   const parts = [
+    [s.habits, "habit"],
+    [s.habitLogs, "habit log"],
     [s.courses, "course"],
     [s.tasks, "task"],
     [s.events, "event"],

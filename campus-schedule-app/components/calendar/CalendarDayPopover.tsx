@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { CalendarClock, Plus, Repeat, StickyNote, X } from "lucide-react-native";
 import { Pressable, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
 
@@ -163,6 +164,8 @@ export function CalendarDayPopover({
                   </View>
                 );
               }
+              case "habit":
+                return <Row key={item.key} label={`${item.title}, ${item.timeLabel}. Open habit`} onPress={() => router.push({ pathname: "/habits", params: { habitId: item.habit.id, date: iso } })}><View className="flex-1"><Title>{item.title}</Title><Sub>{item.timeLabel}</Sub></View></Row>;
               case "event":
                 return (
                   <Row key={item.key} label={`${item.title}, ${item.timeLabel}. Edit`} onPress={() => onEdit(item)}>

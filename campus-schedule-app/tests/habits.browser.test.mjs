@@ -1,0 +1,71 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
+import puppeteer from "puppeteer-core";
+import { CHROME, DIST, OUT } from "./helpers.mjs";
+
+const base = "/Scheduling-app", port = 4631;
+const server = http.createServer((req, res) => {
+  let url = decodeURIComponent(req.url.split("?")[0]);
+  if (url.startsWith(base)) url = url.slice(base.length);
+  let file = path.join(DIST, url || "index.html");
+  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, "index.html");
+  res.setHeader("content-type", ({ ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".png": "image/png" })[path.extname(file)] || "application/octet-stream");
+  fs.createReadStream(file).pipe(res);
+}).listen(port);
+let browser;
+try {
+  browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--no-sandbox"] });
+  const page = await browser.newPage();
+  const errors = []; page.on("pageerror", e => errors.push(e.message));
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.emulateTimezone("Asia/Manila");
+  await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "light" }]);
+  const go = async route => { await page.goto(`http://localhost:${port}${base}${route}`); await page.waitForSelector('[role="heading"]'); };
+  const click = async label => {
+    await page.waitForFunction(s => [...document.querySelectorAll('button,[role="button"]')].some(e => e.textContent.trim() === s), {}, label);
+    await page.evaluate(s => [...document.querySelectorAll('button,[role="button"]')].find(e => e.textContent.trim() === s).click(), label);
+  };
+  const read = () => page.evaluate(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1") || "null"));
+  await go("/habits");
+  await click("Create your first habit");
+  await page.type('[aria-label="Habit name"]', "Read ten pages");
+  await click("Save habit");
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1") || "{}").habits?.length === 1);
+  await click("Check in");
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1")).logs.length === 1);
+  await page.reload(); await click("Undo check-in");
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1")).logs.length === 2);
+  let saved = await read(); assert.equal(saved.logs[1].retracts, saved.logs[0].id);
+  await click("Check in"); await click("History & insights");
+  await page.screenshot({ path: path.join(OUT, "habits-desktop.png"), fullPage: true });
+  await page.setViewport({ width: 390, height: 844 });
+  await page.screenshot({ path: path.join(OUT, "habits-mobile.png"), fullPage: true });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 390), "mobile page fits viewport");
+  await click("Hide history"); await click("Pause tomorrow"); await click("Paused");
+  await click("Resume tomorrow"); await click("Active");
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1")).habits[0].schedules.length === 2);
+  saved = await read(); assert.equal(saved.habits[0].schedules[0].id, saved.logs[0].occurrenceKey.split(":")[1]);
+  await go("/"); await click("Manage habits");
+  await click("New habit"); await page.type('[aria-label="Habit name"]', "Study focus"); await click("Duration");
+  await click("Save habit");
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1")).habits.length === 2);
+  await click("Focus"); await page.waitForSelector('[aria-label="Pause focus timer"]');
+  await page.reload(); await page.waitForSelector('[aria-label="Pause focus timer"]');
+  await page.click('[aria-label="Stop and save focus time"]');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1")).logs.some(l => l.sourceId));
+  assert.equal((await read()).logs.filter(l => l.sourceId).length, 1);
+  await page.reload(); assert.equal((await read()).logs.filter(l => l.sourceId).length, 1);
+  // Simulated device storage failure is visible; retry preserves the check-in.
+  await page.evaluate(() => { window.__originalSetItem = Storage.prototype.setItem; Storage.prototype.setItem = function(k, v) { if (k === "campus-schedule:habits:v1") throw new Error("Quota exceeded"); return window.__originalSetItem.call(this, k, v); }; });
+  await page.type('[aria-label="Amount for Study focus"]', "5"); await click("Add");
+  await page.waitForFunction(() => document.body.innerText.includes("Habit changes are not saved"));
+  await page.evaluate(() => { Storage.prototype.setItem = window.__originalSetItem; });
+  await click("Retry saving");
+  await page.waitForFunction(() => !document.body.innerText.includes("Habit changes are not saved"));
+  assert.ok((await read()).logs.some(l => l.amount === 300));
+  await go("/calendar"); await click("Hide habits"); await click("Show habits");
+  assert.deepEqual(errors, []);
+  console.log("PASS habit creation, check-in/undo, reload, history, mobile layout, pause/resume, focus recovery, storage retry and Calendar filter");
+} finally { await browser?.close(); server.close(); }

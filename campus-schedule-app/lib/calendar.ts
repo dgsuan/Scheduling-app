@@ -1,3 +1,4 @@
+import { habitOccurrences, type HabitData, type Habit, type HabitOccurrence } from "@/lib/habits";
 import type { Holiday } from "@/constants/holidays";
 import type { CalendarEvent, Course, DatedNote, Task, Weekday } from "@/context/store";
 import { projectedDates } from "@/lib/recurrence";
@@ -72,6 +73,7 @@ export function buildMonthCells(year: number, month: number, includeOutside = fa
 // --- Agenda: everything happening on one date -------------------------
 
 export type AgendaItem =
+  | { kind: "habit"; key: string; title: string; timeLabel: string; sortMin: number; habit: Habit; occurrence: HabitOccurrence }
   | { kind: "holiday"; key: string; title: string; holiday: Holiday }
   | { kind: "class"; key: string; title: string; timeLabel: string; sortMin: number; occ: DatedOccurrence }
   | { kind: "event"; key: string; title: string; timeLabel: string; sortMin: number; event: CalendarEvent }
@@ -88,6 +90,7 @@ export type AgendaItem =
   | { kind: "note"; key: string; title: string; note: DatedNote };
 
 export type AgendaSources = {
+  habits?: HabitData;
   courses: Course[];
   tasks: Task[];
   events: CalendarEvent[];
@@ -169,6 +172,13 @@ export function agendaForDate(iso: string, weekday: Weekday, src: AgendaSources)
         task: t,
         projected: true,
       });
+    }
+  }
+  for (const habit of src.habits?.habits ?? []) {
+    for (const occurrence of habitOccurrences(habit, iso, iso)) {
+      timed.push({ kind: "habit", key: occurrence.key, title: habit.title, habit, occurrence,
+        timeLabel: occurrence.schedule.frequency === "weekly" ? "Weekly habit" : `${occurrence.slot} · Habit`,
+        sortMin: minutesOf(occurrence.slot, 0) });
     }
   }
   timed.sort((a, b) => a.sortMin - b.sortMin);

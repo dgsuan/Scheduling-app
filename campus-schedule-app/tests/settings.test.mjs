@@ -255,7 +255,9 @@ try {
   page = await openAt("2026-09-14T10:00:00");
   const cdp = await page.createCDPSession();
   await cdp.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: DL, eventsEnabled: true });
+  const habitData = { version: 1, habits: [{ id: "h1", title: "Read", type: "binary", category: "Learning", notes: "", reminder: false, createdAt: 1, schedules: [{ id: "s1", from: "2026-09-14", timezone: "Asia/Manila", frequency: "daily", weekdays: [1], interval: 1, quota: 3, weekStart: 1, slots: ["00:00"], target: 1, unit: "times", state: "active" }] }], logs: [{ id: "l1", habitId: "h1", occurrenceKey: "h1:s1:2026-09-14:00:00", date: "2026-09-14", at: 1789401600000, amount: 1, confirmed: false }] };
   await seed(page, {
+    "campus-schedule:habits:v1": habitData,
     "campus-schedule:tasks:v1": [
       { id: "t1", title: "Lab report", priority: "high", done: false, createdAt: 1, due: "2026-09-18", dueTime: "23:59", repeat: { freq: "weekly", weekdays: [5] } },
       { id: "t2", title: "Read chapter 3", priority: "medium", done: true, createdAt: 2 },
@@ -276,6 +278,8 @@ try {
     !!exported && /^isked-backup-2026-09-14-\d{4}\.json$/.test(file) && exported.data.tasks.length === 2 && exported.data.appearance.preset === "moss",
     file ?? "no file"
   );
+
+  check("Backup v2 includes complete habit history", exported?.version === 2 && JSON.stringify(exported.data.habits) === JSON.stringify(habitData));
 
   // Generated each run, so they go to the (git-ignored) output folder, not fixtures.
   const bad = path.join(OUT, "bad.json");
@@ -322,9 +326,11 @@ try {
   const restored = await page.evaluate(() => ({
     tasks: JSON.parse(localStorage.getItem("campus-schedule:tasks:v1")).map((x) => x.title),
     radius: document.documentElement.style.getPropertyValue("--radius"),
+    habits: JSON.parse(localStorage.getItem("campus-schedule:habits:v1")),
     undo: !!localStorage.getItem("campus-schedule-cache:before-restore"),
   }));
   check("Restore replaces data and appearance", restored.tasks.includes("Lab report") && restored.radius === "0.25rem", JSON.stringify(restored));
+  check("Restore preserves habit schedules and logs", JSON.stringify(restored.habits) === JSON.stringify(habitData));
   check("Undo snapshot kept", restored.undo && (await text(page)).includes("Undo last restore"));
   await page.close();
   await ctxFresh.close();

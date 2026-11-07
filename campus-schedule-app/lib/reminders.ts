@@ -1,3 +1,4 @@
+import { habitDate, habitOccurrences, habitProgress, type HabitData } from "@/lib/habits";
 import type { Course, Task } from "@/context/store";
 import { addDaysIso, atTime, isoDate } from "@/lib/dates";
 import { classesOnDate, formatRange, type ScheduleRules } from "@/lib/schedule";
@@ -10,7 +11,7 @@ import { dueAt } from "@/lib/tasks";
 
 export type Reminder = {
   id: string;
-  kind: "class" | "task";
+  kind: "class" | "task" | "habit";
   title: string;
   body: string;
   fireAt: number;
@@ -34,6 +35,7 @@ export function formatLead(minutes: number): string {
 }
 
 export function dueReminders(opts: {
+  habits?: HabitData;
   now: Date;
   courses: Course[];
   tasks: Task[];
@@ -80,6 +82,14 @@ export function dueReminders(opts: {
       body: task.dueTime ? "Tap to open your tasks" : "No specific time set",
       fireAt,
     });
+  }
+  for (const h of opts.habits?.habits ?? []) {
+    if (!h.reminder || h.schedules.at(-1)?.state !== "active") continue;
+    const date = habitDate(h.schedules.at(-1)!.timezone, t);
+    for (const o of habitOccurrences(h, date, date)) {
+      if (habitProgress(h, o, opts.habits!.logs, t).ratio === 1 || t < o.startAt || t >= o.endAt || t - o.startAt > grace) continue;
+      out.push({ id: `habit:${o.key}`, kind: "habit", title: "Time for a habit check-in", body: "Open Habits to record your progress", fireAt: o.startAt });
+    }
   }
   return out;
 }

@@ -1,3 +1,4 @@
+import { emptyHabits, validateHabitData, type HabitData } from "@/lib/habits";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   createContext,
@@ -261,6 +262,7 @@ export type CourseGrades = {
 // --- Store shape -----------------------------------------------------
 
 export type StoreSlices = {
+  habits: HabitData;
   courses: Course[];
   canvases: Record<string, CanvasData>;
   tasks: Task[];
@@ -283,6 +285,10 @@ export type SectionPostTask = {
 };
 
 type StoreShape = {
+  habits: HabitData;
+  changeHabits: (update: (data: HabitData) => HabitData) => Promise<boolean>;
+  retryHabits: () => void;
+  habitError: string | null;
   ready: boolean;
 
   courses: Course[];
@@ -348,6 +354,7 @@ type StoreShape = {
 };
 
 export const STORAGE_KEYS = {
+  habits: "campus-schedule:habits:v1",
   courses: "campus-schedule:courses:v1",
   canvases: "campus-schedule:canvases:v2",
   tasks: "campus-schedule:tasks:v1",
@@ -483,6 +490,32 @@ function usePersist(key: string, value: unknown, ready: boolean, onError: (e: un
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [habits, setHabits] = useState<HabitData>(emptyHabits);
+  const habitsRef = useRef(habits);
+  const [habitError, setHabitError] = useState<string | null>(null);
+  const habitQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const habitValid = useRef(true);
+  const persistHabits = useCallback((next: HabitData) => {
+    habitQueue.current = habitQueue.current.catch(() => {}).then(async () => {
+      try {
+        const json = JSON.stringify(next);
+        await AsyncStorage.setItem(STORAGE_KEYS.habits, json);
+        emitLocalWrite(STORAGE_KEYS.habits, json);
+        setHabitError(null);
+        return true;
+      } catch { setHabitError("Habit changes are not saved. Free some device storage and retry before closing the app."); return false; }
+    });
+    return habitQueue.current as Promise<boolean>;
+  }, []);
+  const changeHabits = useCallback((update: (data: HabitData) => HabitData) => {
+    if (!ready || !habitValid.current) return Promise.resolve(false);
+    const next = update(habitsRef.current);
+    if (!validateHabitData(next)) throw new Error("Invalid habit data");
+    habitsRef.current = next;
+    setHabits(next);
+    return persistHabits(next);
+  }, [ready, persistHabits]);
+  const retryHabits = useCallback(() => { if (habitValid.current) persistHabits(habitsRef.current); }, [persistHabits]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [canvases, setCanvases] = useState<Record<string, CanvasData>>({});
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -514,12 +547,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
         setCourses(raw[STORAGE_KEYS.courses] ? parse(STORAGE_KEYS.courses, SEED_COURSES) : SEED_COURSES);
         setCanvases(normalizeCanvases(parse(STORAGE_KEYS.canvases, {})));
+        if (raw[STORAGE_KEYS.habits]) {
+          const saved = parse<unknown>(STORAGE_KEYS.habits, null);
+          if (validateHabitData(saved)) { habitsRef.current = saved; setHabits(saved); }
+          else { habitValid.current = false; setHabitError("Saved habit data could not be read. It has been preserved. Restore a valid backup in Settings and reload."); }
+        }
         setTasks(parse(STORAGE_KEYS.tasks, []));
         setEvents(parse(STORAGE_KEYS.events, []));
         setSettings(normalizeSettings(parse(STORAGE_KEYS.settings, {})));
         setCancellations(parse(STORAGE_KEYS.cancellations, []));
         setGrades(parse(STORAGE_KEYS.grades, {}));
       } catch {
+        habitValid.current = false;
+        setHabitError("Device storage could not be read. Reload before editing habits to protect your saved history.");
         if (!cancelled) setCourses(SEED_COURSES);
       } finally {
         if (!cancelled) setReady(true);
@@ -867,6 +907,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const list = <T,>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
     const obj = <T,>(v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as T) : ({} as T));
     switch (storageKey) {
+      case STORAGE_KEYS.habits:
+        if (validateHabitData(value)) { habitsRef.current = value; setHabits(value); }
+        break;
       case STORAGE_KEYS.courses:
         setCourses(list<Course>(value));
         break;
@@ -893,8 +936,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Latest values, updated on render and eagerly by applySliceChanges, so
   // sync never reads a slice that's older than what it just applied.
-  const slicesRef = useRef<StoreSlices>({ courses, canvases, tasks, events, settings, cancellations, grades });
-  slicesRef.current = { courses, canvases, tasks, events, settings, cancellations, grades };
+  const slicesRef = useRef<StoreSlices>({ habits, courses, canvases, tasks, events, settings, cancellations, grades });
+  slicesRef.current = { habits, courses, canvases, tasks, events, settings, cancellations, grades };
   const snapshot = useCallback(() => slicesRef.current, []);
 
   const applySliceChanges = useCallback((name: StoreSliceName, rows: RemoteItem[]) => {
@@ -905,6 +948,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     slicesRef.current = { ...slicesRef.current, [name]: next(slicesRef.current[name]) };
     const setters: Record<StoreSliceName, (fn: (prev: any) => any) => void> = {
+      habits: setHabits,
       courses: setCourses,
       canvases: setCanvases,
       tasks: setTasks,
@@ -1003,6 +1047,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<StoreShape>(
     () => ({
       ready,
+      habits, changeHabits, retryHabits, habitError,
       courses,
       addCourse,
       updateCourse,
@@ -1048,6 +1093,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       ready,
+      habits, changeHabits, retryHabits, habitError,
       courses,
       addCourse,
       updateCourse,
@@ -1269,4 +1315,9 @@ export function useDatedNotes() {
       s.restoreItem(canvasId, item as CanvasItem);
     },
   };
+}
+
+export function useHabits() {
+  const { ready, habits, changeHabits, habitError, retryHabits } = useStore();
+  return { ready, data: habits, changeHabits, habitError, retryHabits };
 }

@@ -12,6 +12,8 @@ export function KindMark({ item, className }: { item: AgendaItem; className?: st
   switch (item.kind) {
     case "class":
       return <View className={cn("size-1.5 rounded-full", className)} style={{ backgroundColor: item.occ.course.color }} />;
+    case "habit":
+      return <View className={cn("size-2 rounded-full border-2 border-primary", className)} />;
     case "event":
       return <View className={cn("bg-primary h-[3px] w-2 rounded-full", className)} />;
     case "task":

@@ -318,7 +318,7 @@ try {
     await page.click('[aria-label="CMSC 13 grades"]');
     await wait(600);
     // First component (Quizzes).
-    await page.evaluate(() => [...document.querySelectorAll("[role=button],button")].find((b) => b.textContent.trim() === "Add score").click());
+    await page.evaluate(() => [...document.querySelectorAll("[role=button],button")].find((b) => b.textContent.trim() === "Add assessment").click());
     await wait(300);
     const setNum = async (label, v) => {
       const el = await page.$(`[aria-label="${label}"]`);

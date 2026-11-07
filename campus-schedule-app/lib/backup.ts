@@ -1,3 +1,4 @@
+import { emptyHabits, validateHabitData, type HabitData } from "@/lib/habits";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { APPEARANCE_KEY } from "@/constants/theme";
@@ -9,7 +10,7 @@ import { STORAGE_KEYS } from "@/context/store";
 // back to that snapshot so nothing is left half-applied.
 
 export const BACKUP_APP = "campus-schedule";
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 /** Previous data, kept so the last restore can be undone (not itself backed up). */
 export const BEFORE_RESTORE_KEY = "campus-schedule-cache:before-restore";
 
@@ -26,6 +27,8 @@ export type BackupFile = {
 };
 
 export type BackupSummary = {
+  habits: number;
+  habitLogs: number;
   courses: number;
   tasks: number;
   events: number;
@@ -92,6 +95,7 @@ function makeChecker(errors: string[]) {
 }
 
 const VALIDATORS: Record<CollectionName, (c: ReturnType<typeof makeChecker>, v: unknown) => void> = {
+  habits: (c, v) => { if (!validateHabitData(v)) c.fail("habits", "contains invalid habit definitions or history"); },
   courses: (c, v) =>
     c.arr("courses", v, (p, x) => {
       c.str(`${p}.id`, x.id);
@@ -227,6 +231,8 @@ export function validateBackup(text: string): ValidationResult {
     ok: true,
     backup,
     summary: {
+      habits: (data.habits as HabitData | undefined)?.habits.length ?? 0,
+      habitLogs: (data.habits as HabitData | undefined)?.logs.length ?? 0,
       courses: ((data.courses as unknown[]) ?? []).length,
       tasks: ((data.tasks as unknown[]) ?? []).length,
       events: ((data.events as unknown[]) ?? []).length,
@@ -261,11 +267,12 @@ function mergeCanvases(current: unknown, incoming: unknown) {
 
 /** What the stored data would become. Merge keeps current settings/appearance. */
 export function plannedData(current: BackupFile, incoming: BackupFile, mode: "replace" | "merge"): BackupFile["data"] {
-  if (mode === "replace") return { appearance: current.data.appearance, ...incoming.data };
+  if (mode === "replace") return { appearance: current.data.appearance, habits: current.data.habits, ...incoming.data };
   const cur = current.data;
   const inc = incoming.data;
   return {
     ...cur,
+    habits: mergeHabits(cur.habits, inc.habits),
     courses: mergeById(cur.courses, inc.courses),
     tasks: mergeById(cur.tasks, inc.tasks),
     events: mergeById(cur.events, inc.events),
@@ -274,6 +281,15 @@ export function plannedData(current: BackupFile, incoming: BackupFile, mode: "re
     grades: { ...((inc.grades as object) ?? {}), ...((cur.grades as object) ?? {}) },
     settings: cur.settings ?? inc.settings,
   };
+}
+
+function mergeHabits(current: unknown, incoming: unknown): HabitData {
+  const a = validateHabitData(current) ? current : emptyHabits();
+  const b = validateHabitData(incoming) ? incoming : emptyHabits();
+  // Existing definitions win; only import complete new habits, so logs never
+  // become detached from their original schedule snapshots.
+  const newIds = new Set(b.habits.filter(h => !a.habits.some(x => x.id === h.id)).map(h => h.id));
+  return { version: 1, habits: [...a.habits, ...b.habits.filter(h => newIds.has(h.id))], logs: [...a.logs, ...b.logs.filter(l => newIds.has(l.habitId))] };
 }
 
 async function writeAll(data: BackupFile["data"]) {

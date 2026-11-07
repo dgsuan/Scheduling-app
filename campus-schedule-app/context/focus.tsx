@@ -1,3 +1,4 @@
+import { habitId, habitDate, habitOccurrences } from "@/lib/habits";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Pause, Play, Square } from "lucide-react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
 import { useTheme } from "@/context/theme";
-import { useTasks } from "@/context/store";
+import { useHabits, useTasks } from "@/context/store";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 
 // Focus timer for one task at a time. The session survives reloads; when
@@ -16,11 +17,12 @@ import { useBreakpoint } from "@/lib/useBreakpoint";
 
 const KEY = "campus-schedule-cache:focus";
 
-type Session = { taskId: string; startedAt: number | null; accumulatedMs: number };
+type Session = { taskId: string; startedAt: number | null; accumulatedMs: number; id?: string; habit?: { id: string; key: string; date: string }; committing?: boolean };
 
 type FocusCtx = {
   session: Session | null;
   start: (taskId: string) => void;
+  startHabit: (habitId: string, key: string, date: string) => void;
   pause: () => void;
   resume: () => void;
   stop: () => void;
@@ -61,55 +63,79 @@ function readSync(): Session | null {
 
 export function FocusProvider({ children }: { children: React.ReactNode }) {
   const { tasks, addTimeSpent } = useTasks();
+  const { data, ready, changeHabits } = useHabits();
+  const busy = useRef(false);
+  const persistence = useRef<Promise<unknown>>(Promise.resolve());
+  const [loaded, setLoaded] = useState(Platform.OS === "web");
   const [session, setSession] = useState<Session | null>(readSync);
   const sessionRef = useRef(session);
   sessionRef.current = session;
+  const persist = useCallback((s: Session | null) => {
+    persistence.current = persistence.current.catch(() => {}).then(() => s ? AsyncStorage.setItem(KEY, JSON.stringify(s)) : AsyncStorage.removeItem(KEY));
+    return persistence.current;
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === "web") return;
     AsyncStorage.getItem(KEY)
       .then((raw) => raw && setSession(JSON.parse(raw)))
-      .catch(() => {});
+      .catch(() => {}).finally(() => setLoaded(true));
   }, []);
 
   useEffect(() => {
-    if (session) AsyncStorage.setItem(KEY, JSON.stringify(session)).catch(() => {});
-    else AsyncStorage.removeItem(KEY).catch(() => {});
-  }, [session]);
+    if (loaded) void persist(session).catch(() => {});
+  }, [session, loaded, persist]);
 
-  const commit = useCallback(
-    (s: Session | null) => {
-      if (s) addTimeSpent(s.taskId, elapsedMs(s) / 1000);
-    },
-    [addTimeSpent]
-  );
-
-  const start = useCallback(
-    (taskId: string) => {
-      const current = sessionRef.current;
-      if (current?.taskId === taskId) return;
-      commit(current);
-      setSession({ taskId, startedAt: Date.now(), accumulatedMs: 0 });
-    },
-    [commit]
-  );
+  const commit = useCallback(async (s: Session | null) => {
+    if (!s) return true;
+    if (!s.habit) { addTimeSpent(s.taskId, elapsedMs(s) / 1000); return true; }
+    const stopped = { ...s, id: s.id ?? habitId(), accumulatedMs: elapsedMs(s), startedAt: null, committing: true };
+    sessionRef.current = stopped;
+    setSession(stopped);
+    try { await persist(stopped); } catch { return false; }
+    return changeHabits(d => {
+      if (d.logs.some(l => l.sourceId === stopped.id)) return d;
+      if (!d.habits.some(h => h.id === s.habit!.id)) return d;
+      return { ...d, logs: [...d.logs, { id: habitId(), sourceId: stopped.id, habitId: s.habit!.id, occurrenceKey: s.habit!.key, date: s.habit!.date, at: Date.now(), amount: stopped.accumulatedMs / 1000, confirmed: false }] };
+    });
+  }, [addTimeSpent, changeHabits, persist]);
+  const switchTo = useCallback(async (next: Session | null) => {
+    if (busy.current || !ready || !loaded) return;
+    busy.current = true;
+    try {
+      if (!(await commit(sessionRef.current))) return;
+      await persist(next);
+      sessionRef.current = next;
+      setSession(next);
+    } catch { /* Keep the current session available for retry. */ }
+    finally { busy.current = false; }
+  }, [commit, persist, ready, loaded]);
+  const start = useCallback((taskId: string) => {
+    if (sessionRef.current?.taskId === taskId && !sessionRef.current.habit) return;
+    void switchTo({ taskId, id: habitId(), startedAt: Date.now(), accumulatedMs: 0 });
+  }, [switchTo]);
+  const startHabit = useCallback((id: string, key: string, date: string) => {
+    const h = data.habits.find(h => h.id === id);
+    const o = h && habitOccurrences(h, date, date).find(o => o.key === key);
+    if (!h || h.type !== "duration" || !o || Date.now() < o.startAt || Date.now() >= o.endAt) return;
+    if (sessionRef.current?.habit?.key === key) return;
+    void switchTo({ taskId: "", id: habitId(), habit: { id, key, date: habitDate(o.schedule.timezone) }, startedAt: Date.now(), accumulatedMs: 0 });
+  }, [data.habits, switchTo]);
   const pause = useCallback(() => {
     setSession((s) => (s && s.startedAt ? { ...s, startedAt: null, accumulatedMs: elapsedMs(s) } : s));
   }, []);
   const resume = useCallback(() => {
-    setSession((s) => (s && !s.startedAt ? { ...s, startedAt: Date.now() } : s));
+    setSession((s) => (s && !s.startedAt && !s.committing ? { ...s, startedAt: Date.now() } : s));
   }, []);
-  const stop = useCallback(() => {
-    commit(sessionRef.current);
-    setSession(null);
-  }, [commit]);
+  const stop = useCallback(() => { void switchTo(null); }, [switchTo]);
 
-  // If the task disappears (deleted), end the session quietly.
   useEffect(() => {
-    if (session && !tasks.some((t) => t.id === session.taskId)) setSession(null);
-  }, [tasks, session]);
+    if (!ready || !loaded || !session) return;
+    const exists = session.habit ? data.habits.some(h => h.id === session.habit!.id) : tasks.some(t => t.id === session.taskId);
+    if (!exists) { sessionRef.current = null; setSession(null); }
+  }, [tasks, data.habits, ready, loaded, session]);
 
-  const value = useMemo(() => ({ session, start, pause, resume, stop }), [session, start, pause, resume, stop]);
+  const value = useMemo(() => ({ session, start, startHabit, pause, resume, stop }), [session, start, startHabit, pause, resume, stop]);
   return <FocusContext.Provider value={value}>{children}</FocusContext.Provider>;
 }
 
@@ -123,6 +149,7 @@ export function useFocus() {
 export function FocusBar() {
   const { session, pause, resume, stop } = useFocus();
   const { tasks } = useTasks();
+  const { data } = useHabits();
   const { wide } = useBreakpoint();
   const t = useTheme();
   const [, tick] = useState(0);
@@ -134,7 +161,7 @@ export function FocusBar() {
     return () => clearInterval(id);
   }, [running]);
 
-  const task = session ? tasks.find((x) => x.id === session.taskId) : undefined;
+  const task = session?.habit ? data.habits.find(h => h.id === session.habit!.id) : session ? tasks.find((x) => x.id === session.taskId) : undefined;
   if (!session || !task) return null;
 
   return (

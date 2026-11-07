@@ -7,7 +7,7 @@ import { BACKUP_KEYS, type CollectionName } from "@/lib/backup";
 // per-device id, per-account bookkeeping, and "does this device already
 // hold real data?". The engine itself lives in components/SyncEngine.tsx.
 
-export const SLICES = Object.keys(BACKUP_KEYS) as CollectionName[];
+export const SLICES = Object.keys(BACKUP_KEYS).filter(name => name !== "habits") as CollectionName[];
 export const sliceForKey = (storageKey: string) => SLICES.find((n) => BACKUP_KEYS[n] === storageKey);
 
 // --- Status ------------------------------------------------------------------

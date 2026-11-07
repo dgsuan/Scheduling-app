@@ -13,6 +13,7 @@ const OUT = path.join(APP, "supabase", "functions", "_shared", "app");
 
 /** Source (relative to the app) → file name in _shared/app. */
 const FILES = {
+  "lib/habits.ts": "habits.ts",
   "lib/dates.ts": "dates.ts",
   "lib/schedule.ts": "schedule.ts",
   "lib/tasks.ts": "tasks.ts",

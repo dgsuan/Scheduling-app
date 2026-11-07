@@ -1,3 +1,5 @@
+import { router } from "expo-router";
+import { habitOccurrences, type HabitData, type Habit } from "@/lib/habits";
 import { useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, View, type GestureResponderEvent } from "react-native";
 
@@ -36,6 +38,7 @@ const DEADLINE_MIN = 30;
 const MIN_BLOCK_H = 20;
 
 type Sources = {
+  habits?: HabitData;
   courses: Course[];
   tasks: Task[];
   events: CalendarEvent[];
@@ -51,6 +54,7 @@ type Block =
 type Placed = Block & { col: number; cols: number };
 
 type AllDay =
+  | { kind: "habit"; key: string; title: string; habit: Habit }
   | { kind: "holiday"; key: string; title: string; holiday: Holiday }
   | { kind: "event"; key: string; title: string; event: CalendarEvent }
   | { kind: "task"; key: string; title: string; task: Task }
@@ -161,6 +165,9 @@ export function CalendarWeek({
         if (spansDate(n.date, n.endDate, iso)) allDay.push({ kind: "note", key: n.id, title: n.text.trim() || "Note", note: n });
       }
 
+      for (const habit of sources.habits?.habits ?? []) {
+        for (const o of habitOccurrences(habit, iso, iso)) allDay.push({ kind: "habit", key: o.key, title: `${habit.title} · ${o.schedule.frequency === "weekly" ? "weekly" : o.slot}`, habit });
+      }
       return { iso, placed: layoutOverlaps(blocks), allDay };
     });
   }, [days, sources]);
@@ -235,9 +242,9 @@ export function CalendarWeek({
                 return (
                   <Pressable
                     key={a.key}
-                    disabled={!editable}
-                    onPress={() => editable && onEdit(editable)}
-                    accessibilityRole={editable ? "button" : "text"}
+                    disabled={!editable && a.kind !== "habit"}
+                    onPress={() => a.kind === "habit" ? router.push({ pathname: "/habits", params: { habitId: a.habit.id, date: d.iso } }) : editable && onEdit(editable)}
+                    accessibilityRole={editable || a.kind === "habit" ? "button" : "text"}
                     accessibilityLabel={`${a.title}, all day`}
                     style={tint}
                     className={cn(

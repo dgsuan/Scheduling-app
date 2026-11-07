@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { AppState, Platform } from "react-native";
 
 import { useToast } from "@/components/Toaster";
-import { useCourses, useScheduleRules, useSettings, useTasks } from "@/context/store";
+import { useHabits, useCourses, useScheduleRules, useSettings, useTasks } from "@/context/store";
 import { showSystemNotification } from "@/lib/notify";
 import { pushActiveHere } from "@/lib/push";
 import { dueReminders } from "@/lib/reminders";
@@ -42,11 +42,12 @@ export function ReminderEngine() {
   const { settings } = useSettings();
   const { courses } = useCourses();
   const { tasks } = useTasks();
+  const { data: habits } = useHabits();
   const rules = useScheduleRules();
   const { toast } = useToast();
 
-  const latest = useRef({ settings, courses, tasks, rules, toast });
-  latest.current = { settings, courses, tasks, rules, toast };
+  const latest = useRef({ settings, courses, tasks, rules, toast, habits });
+  latest.current = { settings, courses, tasks, rules, toast, habits };
 
   const enabled = settings.reminders.enabled;
   useEffect(() => {
@@ -55,6 +56,7 @@ export function ReminderEngine() {
       const { settings: s, courses: c, tasks: t, rules: r, toast: show } = latest.current;
       const due = dueReminders({
         now: new Date(),
+        habits: latest.current.habits,
         courses: c,
         tasks: t,
         rules: r,
@@ -68,14 +70,14 @@ export function ReminderEngine() {
         if (fired[reminder.id]) continue;
         fired[reminder.id] = Date.now();
         changed = true;
-        if (pushActiveHere()) {
+        if (pushActiveHere() && reminder.kind !== "habit") {
           // The server sends the system notification; only show it in-app while the app is in view.
           if (Platform.OS !== "web" || document.visibilityState === "visible") {
             show({ id: reminder.id, message: reminder.title, description: reminder.body, duration: 15_000 });
           }
           continue;
         }
-        showSystemNotification(reminder.title, reminder.body, reminder.id, reminder.kind === "task" ? "tasks" : "").then(
+        showSystemNotification(reminder.title, reminder.body, reminder.id, reminder.kind === "habit" ? "habits" : reminder.kind === "task" ? "tasks" : "").then(
           (shown) => {
             if (!shown) show({ id: reminder.id, message: reminder.title, description: reminder.body, duration: 15_000 });
           }

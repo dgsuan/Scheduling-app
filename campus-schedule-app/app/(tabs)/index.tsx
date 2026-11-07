@@ -1,3 +1,4 @@
+import { TodayHabits } from "@/components/habits/TodayHabits";
 import { router } from "expo-router";
 import { ArrowRight, Plus, TriangleAlert } from "lucide-react-native";
 import { useMemo, useState } from "react";
@@ -390,6 +391,7 @@ export default function ScheduleHomeScreen() {
           {side}
         </View>
       )}
+      <TodayHabits />
     </ScrollView>
   );
 }
