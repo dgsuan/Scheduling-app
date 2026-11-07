@@ -257,7 +257,7 @@ export function SyncEngine() {
     const fetchItems = async (since: string | null): Promise<RemoteItem[]> => {
       const out: RemoteItem[] = [];
       for (let from = 0; ; from += PAGE) {
-        let q = db.from(TABLE).select("collection,id,parent,data,deleted,updated_at");
+        let q = db.from(TABLE).select("collection,id,parent,data,deleted,updated_at").in("collection", ["course", "task", "event", "cancellation", "grade", "note_item", "drawing", "setting"]);
         if (since) q = q.gt("updated_at", since);
         const { data, error } = await q.order("updated_at").order("collection").order("id").range(from, from + PAGE - 1);
         if (error) throw error;

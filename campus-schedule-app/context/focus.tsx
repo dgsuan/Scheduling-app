@@ -1,3 +1,4 @@
+import { useAuth } from "@/context/auth";
 import { habitId, habitDate, habitOccurrences } from "@/lib/habits";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Pause, Play, Square } from "lucide-react-native";
@@ -17,7 +18,7 @@ import { useBreakpoint } from "@/lib/useBreakpoint";
 
 const KEY = "campus-schedule-cache:focus";
 
-type Session = { taskId: string; startedAt: number | null; accumulatedMs: number; id?: string; habit?: { id: string; key: string; date: string }; committing?: boolean };
+type Session = { taskId: string; startedAt: number | null; accumulatedMs: number; id?: string; habit?: { id: string; key: string; date: string; owner?: string }; committing?: boolean };
 
 type FocusCtx = {
   session: Session | null;
@@ -63,7 +64,8 @@ function readSync(): Session | null {
 
 export function FocusProvider({ children }: { children: React.ReactNode }) {
   const { tasks, addTimeSpent } = useTasks();
-  const { data, ready, changeHabits } = useHabits();
+  const auth = useAuth();
+  const { data, ready, changeHabits, habitLocked } = useHabits();
   const busy = useRef(false);
   const persistence = useRef<Promise<unknown>>(Promise.resolve());
   const [loaded, setLoaded] = useState(Platform.OS === "web");
@@ -95,7 +97,7 @@ export function FocusProvider({ children }: { children: React.ReactNode }) {
     try { await persist(stopped); } catch { return false; }
     return changeHabits(d => {
       if (d.logs.some(l => l.sourceId === stopped.id)) return d;
-      if (!d.habits.some(h => h.id === s.habit!.id)) return d;
+      if (d.cloud?.ownerId !== s.habit!.owner || !d.habits.some(h => h.id === s.habit!.id)) return d;
       return { ...d, logs: [...d.logs, { id: habitId(), sourceId: stopped.id, habitId: s.habit!.id, occurrenceKey: s.habit!.key, date: s.habit!.date, at: Date.now(), amount: stopped.accumulatedMs / 1000, confirmed: false }] };
     });
   }, [addTimeSpent, changeHabits, persist]);
@@ -119,8 +121,8 @@ export function FocusProvider({ children }: { children: React.ReactNode }) {
     const o = h && habitOccurrences(h, date, date).find(o => o.key === key);
     if (!h || h.type !== "duration" || !o || Date.now() < o.startAt || Date.now() >= o.endAt) return;
     if (sessionRef.current?.habit?.key === key) return;
-    void switchTo({ taskId: "", id: habitId(), habit: { id, key, date: habitDate(o.schedule.timezone) }, startedAt: Date.now(), accumulatedMs: 0 });
-  }, [data.habits, switchTo]);
+    void switchTo({ taskId: "", id: habitId(), habit: { id, key, date: habitDate(o.schedule.timezone), owner: data.cloud?.ownerId }, startedAt: Date.now(), accumulatedMs: 0 });
+  }, [data.habits, data.cloud?.ownerId, switchTo]);
   const pause = useCallback(() => {
     setSession((s) => (s && s.startedAt ? { ...s, startedAt: null, accumulatedMs: elapsedMs(s) } : s));
   }, []);
@@ -130,10 +132,11 @@ export function FocusProvider({ children }: { children: React.ReactNode }) {
   const stop = useCallback(() => { void switchTo(null); }, [switchTo]);
 
   useEffect(() => {
+    if (auth.ready && habitLocked && session?.habit) { sessionRef.current = null; setSession(null); return; }
     if (!ready || !loaded || !session) return;
-    const exists = session.habit ? data.habits.some(h => h.id === session.habit!.id) : tasks.some(t => t.id === session.taskId);
+    const exists = session.habit ? (data.cloud?.ownerId === session.habit.owner && data.habits.some(h => h.id === session.habit!.id)) : tasks.some(t => t.id === session.taskId);
     if (!exists) { sessionRef.current = null; setSession(null); }
-  }, [tasks, data.habits, ready, loaded, session]);
+  }, [tasks, data.habits, data.cloud?.ownerId, auth.ready, habitLocked, ready, loaded, session]);
 
   const value = useMemo(() => ({ session, start, startHabit, pause, resume, stop }), [session, start, startHabit, pause, resume, stop]);
   return <FocusContext.Provider value={value}>{children}</FocusContext.Provider>;

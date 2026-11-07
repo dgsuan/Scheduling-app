@@ -1,3 +1,5 @@
+import { useAuth } from "@/context/auth";
+import { canAccessHabits, habitCacheKey } from "@/lib/habitSync";
 import { emptyHabits, validateHabitData, type HabitData } from "@/lib/habits";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -288,6 +290,8 @@ type StoreShape = {
   habits: HabitData;
   changeHabits: (update: (data: HabitData) => HabitData) => Promise<boolean>;
   retryHabits: () => void;
+  openHabitProfile: (ownerId?: string, mergeGuest?: boolean) => Promise<void>;
+  habitLocked: boolean;
   habitError: string | null;
   ready: boolean;
 
@@ -492,6 +496,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [habits, setHabits] = useState<HabitData>(emptyHabits);
   const habitsRef = useRef(habits);
+  const auth = useAuth();
+  const authRef = useRef(auth); authRef.current = auth;
+  const habitLocked = !auth.ready || !canAccessHabits(habits, auth.user?.id ?? null);
+  const switchingHabits = useRef(false);
   const [habitError, setHabitError] = useState<string | null>(null);
   const habitQueue = useRef<Promise<unknown>>(Promise.resolve());
   const habitValid = useRef(true);
@@ -500,6 +508,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const json = JSON.stringify(next);
         await AsyncStorage.setItem(STORAGE_KEYS.habits, json);
+        await AsyncStorage.setItem(habitCacheKey(next.cloud?.ownerId), json);
         emitLocalWrite(STORAGE_KEYS.habits, json);
         setHabitError(null);
         return true;
@@ -508,14 +517,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return habitQueue.current as Promise<boolean>;
   }, []);
   const changeHabits = useCallback((update: (data: HabitData) => HabitData) => {
-    if (!ready || !habitValid.current) return Promise.resolve(false);
+    if (!ready || !habitValid.current || switchingHabits.current || !authRef.current.ready || !canAccessHabits(habitsRef.current, authRef.current.user?.id ?? null)) return Promise.resolve(false);
     const next = update(habitsRef.current);
     if (!validateHabitData(next)) throw new Error("Invalid habit data");
+    if (JSON.stringify(next) === JSON.stringify(habitsRef.current)) return Promise.resolve(true);
     habitsRef.current = next;
     setHabits(next);
     return persistHabits(next);
   }, [ready, persistHabits]);
-  const retryHabits = useCallback(() => { if (habitValid.current) persistHabits(habitsRef.current); }, [persistHabits]);
+  const retryHabits = useCallback(() => { if (habitValid.current && canAccessHabits(habitsRef.current, authRef.current.user?.id ?? null)) persistHabits(habitsRef.current); }, [persistHabits]);
+  const openHabitProfile = useCallback(async (ownerId?: string, mergeGuest = false) => {
+    if (!authRef.current.ready || (ownerId && ownerId !== authRef.current.user?.id) || switchingHabits.current || !habitValid.current) return;
+    switchingHabits.current = true;
+    const previous = habitsRef.current;
+    try {
+      await habitQueue.current;
+      // Save the outgoing profile before replacing the active backup mirror.
+      await AsyncStorage.setItem(habitCacheKey(previous.cloud?.ownerId), JSON.stringify(previous));
+      const raw = await AsyncStorage.getItem(habitCacheKey(ownerId));
+      let next: HabitData = raw ? JSON.parse(raw) : emptyHabits();
+      if (!validateHabitData(next) || (next.cloud?.ownerId ?? undefined) !== ownerId && !!raw) throw new Error("This habit profile could not be read; its saved data has been preserved.");
+      if (ownerId) next = { ...next, cloud: next.cloud ?? { ownerId, base: {} } };
+      if (mergeGuest && !previous.cloud) {
+        const ids = new Set(next.habits.map(h => h.id));
+        const additions = previous.habits.filter(h => !ids.has(h.id));
+        if (previous.habits.some(h => ids.has(h.id))) throw new Error("Some guest habit IDs already exist in this account. Open account habits without merging, and keep the guest backup for review.");
+        next = { ...next, habits: [...next.habits, ...additions], logs: [...next.logs, ...previous.logs] };
+      }
+      if (ownerId && ownerId !== authRef.current.user?.id) return;
+      if (!(await persistHabits(next))) throw new Error("Could not save the habit profile. Retry before continuing.");
+      habitsRef.current = next; setHabits(next); setHabitError(null);
+    } catch (e) { setHabitError(e instanceof Error ? e.message : "Could not switch habit profiles."); }
+    finally { switchingHabits.current = false; }
+  }, [persistHabits]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [canvases, setCanvases] = useState<Record<string, CanvasData>>({});
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -1047,7 +1081,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<StoreShape>(
     () => ({
       ready,
-      habits, changeHabits, retryHabits, habitError,
+      habits, changeHabits, retryHabits, habitError, openHabitProfile, habitLocked,
       courses,
       addCourse,
       updateCourse,
@@ -1093,7 +1127,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       ready,
-      habits, changeHabits, retryHabits, habitError,
+      habits, changeHabits, retryHabits, habitError, openHabitProfile, habitLocked,
       courses,
       addCourse,
       updateCourse,
@@ -1318,6 +1352,11 @@ export function useDatedNotes() {
 }
 
 export function useHabits() {
-  const { ready, habits, changeHabits, habitError, retryHabits } = useStore();
-  return { ready, data: habits, changeHabits, habitError, retryHabits };
+  const { ready, habits, changeHabits, habitError, retryHabits, openHabitProfile, habitLocked } = useStore();
+  return { ready: ready && !habitLocked, data: habitLocked ? EMPTY_HABITS : habits, changeHabits, habitError, retryHabits, openHabitProfile, habitLocked };
+}
+const EMPTY_HABITS = emptyHabits();
+export function useHabitCloudStore() {
+  const s = useStore();
+  return { ready: s.ready, data: s.habits, locked: s.habitLocked, error: s.habitError, change: s.changeHabits, open: s.openHabitProfile };
 }

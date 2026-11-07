@@ -1,3 +1,5 @@
+import { canAccessHabits, habitCacheKey, portableHabits } from "@/lib/habitSync";
+import { supabase } from "@/lib/supabase";
 import { emptyHabits, validateHabitData, type HabitData } from "@/lib/habits";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -55,6 +57,10 @@ export async function createBackup(now = new Date()): Promise<BackupFile> {
     } catch {
       // A corrupt slice in storage isn't exported rather than breaking the file.
     }
+  }
+  if (validateHabitData(data.habits) && data.habits.cloud) {
+    const session = supabase ? await supabase.auth.getSession() : null;
+    if (session?.error || !canAccessHabits(data.habits, session?.data.session?.user.id ?? null)) throw new Error("Open your own habit profile before exporting or restoring a backup.");
   }
   return { app: BACKUP_APP, version: BACKUP_VERSION, exportedAt: now.toISOString(), data };
 }
@@ -226,6 +232,7 @@ export function validateBackup(text: string): ValidationResult {
 
   const canvases = (data.canvases ?? {}) as Record<string, { items: { kind: string }[] }>;
   const items = Object.values(canvases).flatMap((cv) => cv.items);
+  if (validateHabitData(data.habits)) data.habits = portableHabits(data.habits);
   const backup = parsed as BackupFile;
   return {
     ok: true,
@@ -301,6 +308,7 @@ async function writeAll(data: BackupFile["data"]) {
   }
   await AsyncStorage.multiSet(sets);
   if (removes.length) await AsyncStorage.multiRemove(removes);
+  if (validateHabitData(data.habits)) await AsyncStorage.setItem(habitCacheKey(data.habits.cloud?.ownerId), JSON.stringify(data.habits));
 }
 
 /**
@@ -310,6 +318,9 @@ async function writeAll(data: BackupFile["data"]) {
 export async function applyBackup(incoming: BackupFile, mode: "replace" | "merge"): Promise<void> {
   const current = await createBackup();
   const next = plannedData(current, incoming, mode);
+  if (validateHabitData(next.habits) && validateHabitData(current.data.habits)) {
+    next.habits = { ...portableHabits(next.habits), cloud: current.data.habits.cloud };
+  }
   try {
     await AsyncStorage.setItem(BEFORE_RESTORE_KEY, JSON.stringify(current));
   } catch {
@@ -331,6 +342,11 @@ export async function undoLastRestore(): Promise<void> {
   const raw = await AsyncStorage.getItem(BEFORE_RESTORE_KEY);
   if (!raw) return;
   const previous = JSON.parse(raw) as BackupFile;
+  if (validateHabitData(previous.data.habits) && previous.data.habits.cloud) {
+    const session = supabase ? await supabase.auth.getSession() : null;
+    if (!canAccessHabits(previous.data.habits, session?.data.session?.user.id ?? null)) throw new Error("This restore belongs to another habit account.");
+  }
+  await createBackup(); // Enforce active profile ownership before overwriting.
   await writeAll(previous.data);
   await AsyncStorage.removeItem(BEFORE_RESTORE_KEY);
 }

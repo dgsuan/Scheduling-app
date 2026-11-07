@@ -29,6 +29,7 @@ try {
   };
   const read = () => page.evaluate(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1") || "null"));
   await go("/habits");
+  assert.ok(await page.$('[role="tab"][aria-label="Habits"]'), "Habits has a desktop navigation tab");
   await click("Create your first habit");
   await page.type('[aria-label="Habit name"]', "Read ten pages");
   await click("Save habit");
@@ -66,6 +67,15 @@ try {
   await page.waitForFunction(() => !document.body.innerText.includes("Habit changes are not saved"));
   assert.ok((await read()).logs.some(l => l.amount === 300));
   await go("/calendar"); await click("Hide habits"); await click("Show habits");
+  await page.click('[role="tab"][aria-label="Habits"]');
+  await page.waitForSelector('[aria-label="Search habits"]');
+  assert.ok(await page.evaluate(() => document.querySelector('[role="tab"][aria-label="Habits"]').getAttribute('aria-selected') === 'true'), 'Habits tab is selected');
+  await page.click('[aria-label="More navigation"]');
+  await click('Settings');
+  await page.waitForFunction(() => location.pathname.endsWith('/settings'));
+  await page.click('[role="tab"][aria-label="Habits"]');
+  await page.waitForSelector('[aria-label="Search habits"]');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Main navigation fits mobile');
   assert.deepEqual(errors, []);
   console.log("PASS habit creation, check-in/undo, reload, history, mobile layout, pause/resume, focus recovery, storage retry and Calendar filter");
 } finally { await browser?.close(); server.close(); }

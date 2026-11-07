@@ -1,3 +1,5 @@
+import { portableHabits } from "@/lib/habitSync";
+import { validateHabitData } from "@/lib/habits";
 import * as DocumentPicker from "expo-document-picker";
 import { Download, TriangleAlert, Upload } from "lucide-react-native";
 import { useEffect, useState } from "react";
@@ -74,9 +76,12 @@ export function BackupSection() {
   }, [storageError]);
 
   const exportBackup = async () => {
+    try {
     const backup = await createBackup();
+    if (validateHabitData(backup.data.habits)) backup.data.habits = portableHabits(backup.data.habits);
     const ok = downloadText(backupFilename(), JSON.stringify(backup, null, 2));
     if (ok) toast({ message: "Backup downloaded", description: backupFilename() });
+    } catch (e) { setErrors([e instanceof Error ? e.message : "Could not export backup."]); }
   };
 
   const pickFile = async () => {

@@ -10,7 +10,7 @@ export type HabitSchedule = {
 };
 export type Habit = { id: string; title: string; type: HabitType; category: string; notes: string; createdAt: number; schedules: HabitSchedule[]; reminder: boolean };
 export type HabitLog = { id: string; habitId: string; occurrenceKey: string; date: string; at: number; amount: number; confirmed: boolean; retracts?: string; sourceId?: string };
-export type HabitData = { version: 1; habits: Habit[]; logs: HabitLog[] };
+export type HabitData = { version: 1; habits: Habit[]; logs: HabitLog[]; cloud?: { ownerId: string; base: Record<string, { data: Habit | HabitLog; updated_at: string }> } };
 export const emptyHabits = (): HabitData => ({ version: 1, habits: [], logs: [] });
 export const habitId = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
 const formatters = new Map<string, Intl.DateTimeFormat>();
@@ -101,6 +101,7 @@ export function validateHabitData(value: unknown): value is HabitData {
   try {
     const d = value as HabitData;
     if (!d || d.version !== 1 || !Array.isArray(d.habits) || !Array.isArray(d.logs)) return false;
+    if (d.cloud && (typeof d.cloud.ownerId !== 'string' || !/^[a-f0-9-]{36}$/i.test(d.cloud.ownerId) || !d.cloud.base || typeof d.cloud.base !== 'object' || Array.isArray(d.cloud.base))) return false;
     const ids = new Set<string>();
     for (const h of d.habits) {
       if (!h || typeof h.id !== "string" || !h.id || h.id.length > 40 || ids.has(h.id) || typeof h.title !== "string" || !h.title.trim() || !["binary", "quantity", "duration", "avoid"].includes(h.type) || typeof h.category !== "string" || typeof h.notes !== "string" || !Number.isFinite(h.createdAt) || typeof h.reminder !== "boolean" || !Array.isArray(h.schedules) || !h.schedules.length) return false;

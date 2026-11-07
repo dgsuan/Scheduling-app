@@ -1,3 +1,4 @@
+import { HabitCloudControls } from "@/components/habits/HabitCloud";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { ScrollView, View } from "react-native";
@@ -61,7 +62,7 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
     <Field label="Timezone" value={zone} onChange={setZone} />
     <Field label="Category" value={category} onChange={setCategory} /><Field label="Notes" value={notes} onChange={setNotes} />
     <Button variant="outline" onPress={() => setReminder(!reminder)}><Text>{reminder ? "Reminders on" : "Reminders off"}</Text></Button>
-    <Text className="text-muted-foreground text-xs">Reminders use your notification settings and work while the app is open. Habits are saved on this device and included in JSON backups; cloud sync is not enabled.</Text>
+    <Text className="text-muted-foreground text-xs">Reminders use your notification settings and work while the app is open. Habits are saved on this device and included in JSON backups. Enable optional account sync from the habit library.</Text>
     {valid && <Text className="text-muted-foreground text-sm">Next: {habitOccurrences(next, from, addDaysIso(from, 14)).slice(0, 3).map(o => `${o.date} ${o.slot}`).join(" · ") || "No opportunities in the next two weeks"}</Text>}
     {error && <Text className="text-destructive">{error}</Text>}
     <View className="flex-row gap-2"><Button onPress={save}><Text>Save habit</Text></Button><Button variant="ghost" onPress={onClose}><Text>Cancel</Text></Button></View>
@@ -85,9 +86,8 @@ export default function HabitsScreen() {
     changeHabits(d => ({ ...d, habits: d.habits.map(x => x.id === h.id ? { ...x, schedules: [...x.schedules.filter(s => s.from < date), { ...last, id: habitId(), from: date, state }] } : x) }));
   };
   return <ScrollView className="bg-background flex-1" contentContainerStyle={{ padding: 24, paddingBottom: 100, maxWidth: 1000, width: "100%", alignSelf: "center" }} keyboardShouldPersistTaps="handled">
-    <Button variant="ghost" className="mb-4 self-start" onPress={() => router.navigate("/")}><Text>← Schedule</Text></Button>
     <ScreenHeader title="Habits" eyebrow="Small steps, steady momentum" subtitle="Build a rhythm that fits around your day." right={<Button disabled={!ready || !!habitError} onPress={() => setEditor("new")}><Text>New habit</Text></Button>} />
-    <Text className="text-muted-foreground mb-5 text-sm">Local-only · saved on this device · included in Settings → Backup. No account needed.</Text>
+    <HabitCloudControls />
     {habitError && <View className="mb-4 gap-2"><Text className="text-destructive">{habitError}</Text><Button onPress={retryHabits}><Text>Retry saving</Text></Button></View>}
     {!ready ? <Text>Loading habits…</Text> : <>
       {editor && <HabitEditor key={editor === "new" ? "new" : editor.id} habit={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} />}

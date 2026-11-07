@@ -16,6 +16,23 @@ query** (paste → Run). They're safe to re-run.
 | `0004_push_and_feeds.sql` | Background reminders (web push) and calendar links kept in sync by the server. |
 | `0005_server_access.sql` | Lets the scheduled Edge Functions read the tables they need. |
 | `0006_activity.sql` | Task board Friend activity: share your Doing task with your sections and people you've shared courses with. |
+| `0007_habit_sync_foundation.sql` | Habit storage foundation: private definitions and immutable logs, parent validation, duplicate focus protection, and retained deletion markers. Does not enable habit uploads in the app. |
+| `0008_habit_sync_compare_and_swap.sql` | Version 2 habit API: concurrent-edit protection, account checks, consistent snapshots, and rejection of old clients' generic habit writes. Required by the new habit sync controls. |
+
+## Habit cloud rollout — database step
+
+1. Export an app backup in Settings before starting the rollout.
+2. Open `migrations/0007_habit_sync_foundation.sql`, copy the entire file, and run it in your existing project's SQL Editor as a new query.
+3. The result should contain `habit_sync_version` with value `1`. The file runs in one transaction and can be rerun. It adds permitted collections, functions, indexes and policies; it does not upload local habits or replace existing data.
+4. If an error appears, keep its full text. Do not run selected fragments or disable access policies.
+
+After 0007, run **0008** as another complete query. Its result should be `habit_sync_version = 2`. The updated app checks for version 2 before connecting habits; version 1 keeps them local.
+
+Publish the updated app after applying the migrations. In **Schedule → Manage habits → Habit cloud sync**, choose **Enable habit sync**, then choose whether to include guest habits. Use the same account on a second browser/device, open its account habits, and check that a test habit/check-in appears. Test an offline check-in, reconnect, and use **Sync habits now**. Existing Settings “Synced” refers to ordinary app data; use the separate **Habits synced** status to verify habits.
+
+Different accounts cannot silently receive the previous account's habits. A locked profile is hidden; **Open my account habits** switches to that account's cached/cloud data. Guest import always requires a deliberate choice. Database and browser tests run locally do not replace this hosted-project smoke test.
+
+Isolated database verification (no live credentials or project access): install `@electric-sql/pglite` under `tests/.output/habit-db`, then run `node tests/habit-database.test.mjs`. This tests the existing item schema plus migration 0007, including repeat application, ownership, event immutability, source deduplication, deletion and account cleanup. Hosted-project verification remains a separate rollout step.
 
 ## Background reminders & calendar links (optional)
 

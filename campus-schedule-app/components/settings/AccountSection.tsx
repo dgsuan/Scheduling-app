@@ -1,3 +1,4 @@
+import { habitCacheKey } from "@/lib/habitSync";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CloudCheck, CloudOff, Info, Loader, MailCheck, RefreshCw, TriangleAlert } from "lucide-react-native";
 import { useEffect, useState } from "react";
@@ -302,8 +303,11 @@ function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     try {
       await deleteAccount(user.email, password, user.id);
       await clearSyncMeta(user.id);
+      await AsyncStorage.removeItem(habitCacheKey(user.id));
+      const habitRaw = await AsyncStorage.getItem(BACKUP_KEYS.habits);
+      if (habitRaw && JSON.parse(habitRaw)?.cloud?.ownerId === user.id) await AsyncStorage.removeItem(BACKUP_KEYS.habits);
       if (eraseDevice) {
-        await AsyncStorage.multiRemove(Object.values(BACKUP_KEYS));
+        await AsyncStorage.multiRemove([...Object.values(BACKUP_KEYS), habitCacheKey(user.id)]);
         if (Platform.OS === "web") {
           window.location.reload();
           return;

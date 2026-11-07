@@ -5,6 +5,8 @@ import {
   CalendarDays,
   Download,
   ListChecks,
+  Sprout,
+  Ellipsis,
   Moon,
   NotebookPen,
   Search,
@@ -28,6 +30,7 @@ import { useCommandPalette } from "@/components/CommandPalette";
 import { SyncBadge } from "@/components/SyncBadge";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ThemeToggle, useAppearance, useTheme, useTimeOfDay } from "@/context/theme";
 import type { TimeOfDay } from "@/lib/timeOfDay";
 import { useNow } from "@/lib/useNow";
@@ -47,6 +50,7 @@ const WORDMARK_DARK = require("../assets/wordmark-dark.png");
 const ICONS: Record<string, LucideIcon> = {
   index: CalendarClock,
   tasks: ListChecks,
+  habits: Sprout,
   calendar: CalendarDays,
   courses: BookOpen,
   notes: NotebookPen,
@@ -63,6 +67,7 @@ const PERIOD: Record<TimeOfDay, { label: string; icon: LucideIcon }> = {
 };
 
 const SPRING = { damping: 22, stiffness: 300, mass: 0.8, reduceMotion: ReduceMotion.System };
+const MOBILE_PRIMARY = new Set(["index", "tasks", "habits", "calendar"]);
 
 function useIndicator(active: number, layouts: (LayoutRectangle | undefined)[]) {
   const x = useSharedValue(0);
@@ -99,7 +104,9 @@ function useIndicator(active: number, layouts: (LayoutRectangle | undefined)[]) 
 
 export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTabBarProps & { vertical: boolean }) {
   const [layouts, setLayouts] = useState<(LayoutRectangle | undefined)[]>([]);
-  const indicator = useIndicator(state.index, layouts);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreActive = !MOBILE_PRIMARY.has(state.routes[state.index].name);
+  const indicator = useIndicator(!vertical && moreActive ? -1 : state.index, layouts);
   const insets = useSafeAreaInsets();
   const { setOpen } = useCommandPalette();
   const openPalette = () => setOpen(true);
@@ -107,6 +114,7 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
   const { eka } = useAppearance().appearance;
 
   const items = state.routes.map((route, i) => {
+    if (!vertical && !MOBILE_PRIMARY.has(route.name)) return null;
     const { options } = descriptors[route.key];
     const label = typeof options.title === "string" ? options.title : route.name;
     const focused = state.index === i;
@@ -203,11 +211,37 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
       style={{ paddingBottom: Math.max(insets.bottom, 6) }}
     >
       <View role="tablist" className="flex-row">
-        <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, top: 0 }, indicator]}>
+        {!moreActive && <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, top: 0 }, indicator]}>
           <View className="bg-primary/10 flex-1 rounded-lg" />
-        </Animated.View>
+        </Animated.View>}
         {items}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="More navigation"
+          accessibilityState={{ expanded: moreOpen }}
+          onPress={() => setMoreOpen(true)}
+          className={cn("flex-1 items-center gap-1 rounded-lg py-1.5", moreActive && "bg-primary/10")}
+        >
+          <Icon as={Ellipsis} size={20} className={moreActive ? "text-primary" : "text-muted-foreground"} />
+          <Text className={cn("text-[10.5px] font-medium", moreActive ? "text-foreground" : "text-muted-foreground")}>More</Text>
+        </Pressable>
       </View>
+      <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>More in Isked</DialogTitle><DialogDescription>Your courses, notes, imports and settings.</DialogDescription></DialogHeader>
+          {state.routes.filter(route => !MOBILE_PRIMARY.has(route.name)).map(route => {
+            const label = descriptors[route.key].options.title ?? route.name;
+            return <Pressable key={route.key} accessibilityRole="button" accessibilityLabel={label}
+              onPress={() => {
+                const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+                if (!event.defaultPrevented) { navigation.navigate(route.name, route.params); setMoreOpen(false); }
+              }} className="flex-row items-center gap-3 rounded-lg px-3 py-3 web:hover:bg-accent">
+              <Icon as={ICONS[route.name] ?? CalendarDays} size={20} className="text-primary" />
+              <Text className="text-base font-medium">{label}</Text>
+            </Pressable>;
+          })}
+        </DialogContent>
+      </Dialog>
     </View>
   );
 }
