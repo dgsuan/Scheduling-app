@@ -156,7 +156,7 @@ try {
   await clickLabel(page, "CMSC 21 grades");
   await wait(500);
   t = await text(page);
-  check("Grade target shown", t.includes("What do I need for") && t.includes("To get 1.00, average at least 94% on Exams (50%)."), (t.match(/To get[^\n]*/) || [""])[0]);
+  check("Grade target shown", t.includes("What do I need for") && t.includes("To get 1.00, average at least 94% on Exams (50% of course)."), (t.match(/To get[^\n]*/) || [""])[0]);
   await page.screenshot({ path: path.join(SHOTS, "3-grades.png") });
   await page.keyboard.press("Escape");
 

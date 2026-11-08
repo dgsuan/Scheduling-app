@@ -1,4 +1,4 @@
-import { habitDate, habitOccurrences, habitProgress, type HabitData } from "@/lib/habits";
+import { activeHabitLogs, habitDate, habitOccurrences, habitProgress, habitTime, type HabitData } from "@/lib/habits";
 import type { Course, Task } from "@/context/store";
 import { addDaysIso, atTime, isoDate } from "@/lib/dates";
 import { classesOnDate, formatRange, type ScheduleRules } from "@/lib/schedule";
@@ -15,6 +15,7 @@ export type Reminder = {
   title: string;
   body: string;
   fireAt: number;
+  habitId?: string;
 };
 
 /** Untimed tasks are reminded at this time on their due date. */
@@ -87,8 +88,25 @@ export function dueReminders(opts: {
     if (!h.reminder || h.schedules.at(-1)?.state !== "active") continue;
     const date = habitDate(h.schedules.at(-1)!.timezone, t);
     for (const o of habitOccurrences(h, date, date)) {
-      if (habitProgress(h, o, opts.habits!.logs, t).ratio === 1 || t < o.startAt || t >= o.endAt || t - o.startAt > grace) continue;
-      out.push({ id: `habit:${o.key}`, kind: "habit", title: "Time for a habit check-in", body: "Open Habits to record your progress", fireAt: o.startAt });
+      if (habitProgress(h, o, opts.habits!.logs, t).ratio === 1 || t < o.startAt || t >= o.endAt || t < (h.reminderSnoozedUntil ?? 0)) continue;
+      let fireAt = Math.max(o.startAt, h.reminderSnoozedUntil ?? 0);
+      let suffix = h.reminderSnoozedUntil ? `:snooze:${h.reminderSnoozedUntil}` : "";
+      if (h.reminderEveryMinutes) {
+        const start = habitTime(date, h.reminderStart ?? "09:00", o.schedule.timezone);
+        const end = habitTime(date, h.reminderEnd ?? "21:00", o.schedule.timezone);
+        if (t < start || t >= end) continue;
+        const interval = h.reminderEveryMinutes * 60000;
+        const last = activeHabitLogs(opts.habits!.logs).filter(l => l.habitId === h.id && l.date === date && (l.amount > 0 || l.confirmed)).reduce((at, l) => Math.max(at, l.at), 0);
+        const anchor = Math.max(start, o.startAt, last, (h.reminderSnoozedUntil ?? 0) - interval);
+        const count = Math.floor((t - anchor) / interval);
+        if (count < 1) continue;
+        fireAt = anchor + count * interval;
+        suffix = `:interval:${fireAt}`;
+      }
+      if (t - fireAt > grace) continue;
+      // One reminder for the habit, even when its configured slots overlap.
+      if (out.some(r => r.habitId === h.id)) continue;
+      out.push({ id: `habit:${o.key}${suffix}`, habitId: h.id, kind: "habit", title: "Time for a habit check-in", body: "Open Habits to record your progress", fireAt });
     }
   }
   return out;

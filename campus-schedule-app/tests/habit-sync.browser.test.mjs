@@ -65,7 +65,7 @@ try {
       }
     }, session(id), tokenKey);
     await page.goto(`http://localhost:${port}${base}/habits`);
-    await page.waitForSelector('[aria-label="Search habits"]');
+    await page.waitForFunction(() => document.body.innerText.includes('New habit'));
     return page;
   };
   const click = async (page, label) => {
@@ -79,14 +79,14 @@ try {
   await first.waitForFunction(k => JSON.parse(localStorage.getItem(k) || '{}').logs?.length === 1, {}, key);
   assert.equal(writes.length, 0, 'Guest data must never upload without consent');
   capability = 1;
-  await click(first, 'Enable habit sync'); await click(first, 'Include my guest habits'); await waitText(first, 'needs database update 0008');
+  await click(first, 'Sync settings'); await click(first, 'Enable habit sync'); await click(first, 'Include my guest habits'); await waitText(first, 'needs database update 0008');
   assert.equal(writes.length, 0);
   capability = 2;
   await click(first, 'Include my guest habits'); await waitText(first, 'Habits synced');
   assert.equal(rows.get(a).size, 2);
   assert.equal((await read(first)).cloud.ownerId, a);
   const second = await open(a);
-  await click(second, 'Enable habit sync'); await click(second, 'Open account without guest habits'); await waitText(second, 'Habits synced'); await waitText(second, 'Private reading');
+  await click(second, 'Sync settings'); await click(second, 'Enable habit sync'); await click(second, 'Open account without guest habits'); await waitText(second, 'Habits synced'); await waitText(second, 'Private reading');
   assert.equal((await read(second)).logs.length, 1);
   offline = true;
   await click(second, 'Undo check-in');
@@ -94,11 +94,11 @@ try {
   await second.reload(); await waitText(second, 'Private reading');
   assert.equal((await read(second)).logs.length, 2, 'Pending correction survives reload');
   offline = false;
-  await click(second, 'Sync habits now'); await waitText(second, 'Habits synced');
+  await click(second, 'Sync settings'); await click(second, 'Sync habits now'); await waitText(second, 'Habits synced');
   await click(first, 'Sync habits now'); await waitText(first, 'Habits synced');
   assert.equal((await read(first)).logs.length, 2);
   offline = true;
-  await click(second, 'Edit');
+  await click(second, 'Details'); await click(second, 'Edit');
   await second.click('[aria-label="Habit name"]');
   await second.keyboard.down('Control'); await second.keyboard.press('a'); await second.keyboard.up('Control');
   await second.type('[aria-label="Habit name"]', 'Private reading locally');

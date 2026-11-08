@@ -136,6 +136,7 @@ export function AppTabBar({ state, descriptors, navigation, vertical }: BottomTa
         }}
         accessibilityRole="tab"
         accessibilityState={{ selected: focused }}
+        aria-selected={focused}
         accessibilityLabel={label}
         className={cn(
           "group rounded-lg web:transition-colors web:duration-150 active:opacity-80",

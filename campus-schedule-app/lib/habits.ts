@@ -8,8 +8,8 @@ export type HabitSchedule = {
   slots: string[]; target: number; unit: string;
   state: "active" | "paused" | "archived";
 };
-export type Habit = { id: string; title: string; type: HabitType; category: string; notes: string; createdAt: number; schedules: HabitSchedule[]; reminder: boolean };
-export type HabitLog = { id: string; habitId: string; occurrenceKey: string; date: string; at: number; amount: number; confirmed: boolean; retracts?: string; sourceId?: string };
+export type Habit = { id: string; title: string; type: HabitType; category: string; notes: string; createdAt: number; schedules: HabitSchedule[]; reminder: boolean; routine?: string; cue?: string; pomodoroEnabled?: boolean; focusMinutes?: number; breakMinutes?: number; reminderEveryMinutes?: number; reminderSnoozedUntil?: number; reminderStart?: string; reminderEnd?: string };
+export type HabitLog = { id: string; habitId: string; occurrenceKey: string; date: string; at: number; amount: number; confirmed: boolean; retracts?: string; sourceId?: string; reflection?: string; mood?: "low" | "okay" | "good" };
 export type HabitData = { version: 1; habits: Habit[]; logs: HabitLog[]; cloud?: { ownerId: string; base: Record<string, { data: Habit | HabitLog; updated_at: string }> } };
 export const emptyHabits = (): HabitData => ({ version: 1, habits: [], logs: [] });
 export const habitId = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
@@ -106,6 +106,14 @@ export function validateHabitData(value: unknown): value is HabitData {
     for (const h of d.habits) {
       if (!h || typeof h.id !== "string" || !h.id || h.id.length > 40 || ids.has(h.id) || typeof h.title !== "string" || !h.title.trim() || !["binary", "quantity", "duration", "avoid"].includes(h.type) || typeof h.category !== "string" || typeof h.notes !== "string" || !Number.isFinite(h.createdAt) || typeof h.reminder !== "boolean" || !Array.isArray(h.schedules) || !h.schedules.length) return false;
       ids.add(h.id);
+      if ((h.routine !== undefined && (typeof h.routine !== "string" || h.routine.length > 100)) || (h.cue !== undefined && (typeof h.cue !== "string" || h.cue.length > 500))) return false;
+      for (const field of ["focusMinutes", "breakMinutes", "reminderEveryMinutes"] as const) {
+        if (h[field] !== undefined && (!Number.isInteger(h[field]) || h[field]! < 1 || h[field]! > 1440)) return false;
+      }
+      if (h.reminderSnoozedUntil !== undefined && (!Number.isFinite(h.reminderSnoozedUntil) || h.reminderSnoozedUntil < 0)) return false;
+      if (h.pomodoroEnabled !== undefined && typeof h.pomodoroEnabled !== "boolean") return false;
+      for (const time of [h.reminderStart, h.reminderEnd]) if (time !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return false;
+      if ((h.reminderStart ?? "09:00") >= (h.reminderEnd ?? "21:00")) return false;
       const versions = new Set<string>(); let previous = "";
       for (const s of h.schedules) {
         if (!s || typeof s.id !== "string" || !s.id || s.id.length > 30 || versions.has(s.id) || !validDate(s.from) || s.from < previous || (s.until !== undefined && (!validDate(s.until) || s.until < s.from))) return false;
@@ -119,6 +127,7 @@ export function validateHabitData(value: unknown): value is HabitData {
     for (const l of d.logs) {
       if (!l || typeof l.id !== "string" || !l.id || logIds.has(l.id) || !ids.has(l.habitId) || typeof l.occurrenceKey !== "string" || !validDate(l.date) || !Number.isFinite(l.at) || !Number.isFinite(l.amount) || l.amount < 0 || typeof l.confirmed !== "boolean" || (l.retracts !== undefined && typeof l.retracts !== "string") || (l.sourceId !== undefined && typeof l.sourceId !== "string")) return false;
       const h = d.habits.find(h => h.id === l.habitId)!;
+      if ((l.reflection !== undefined && (typeof l.reflection !== "string" || l.reflection.length > 2000)) || (l.mood !== undefined && !["low", "okay", "good"].includes(l.mood))) return false;
       if (!h.schedules.some(s => l.occurrenceKey.startsWith(`${h.id}:${s.id}:`))) return false;
       if (l.retracts) {
         const original = d.logs.find(x => x.id === l.retracts);

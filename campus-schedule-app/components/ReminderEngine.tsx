@@ -42,12 +42,12 @@ export function ReminderEngine() {
   const { settings } = useSettings();
   const { courses } = useCourses();
   const { tasks } = useTasks();
-  const { data: habits } = useHabits();
+  const { data: habits, changeHabits } = useHabits();
   const rules = useScheduleRules();
   const { toast } = useToast();
 
-  const latest = useRef({ settings, courses, tasks, rules, toast, habits });
-  latest.current = { settings, courses, tasks, rules, toast, habits };
+  const latest = useRef({ settings, courses, tasks, rules, toast, habits, changeHabits });
+  latest.current = { settings, courses, tasks, rules, toast, habits, changeHabits };
 
   const enabled = settings.reminders.enabled;
   useEffect(() => {
@@ -70,14 +70,26 @@ export function ReminderEngine() {
         if (fired[reminder.id]) continue;
         fired[reminder.id] = Date.now();
         changed = true;
-        if (pushActiveHere() && reminder.kind !== "habit") {
+        if (reminder.kind === "habit") {
+          const owner = latest.current.habits.cloud?.ownerId;
+          const habit = latest.current.habits.habits.find(h => h.id === reminder.habitId);
+          const inApp = Platform.OS !== "web" || document.visibilityState === "visible";
+          if (inApp) show({ id: reminder.id, message: habit && /water|drink/i.test(habit.title) ? "Time for a water break?" : "A small habit check-in?",
+            description: habit?.title ?? reminder.body, duration: 15000, actionLabel: "Snooze 15 min", onAction: () => {
+              if (latest.current.habits.cloud?.ownerId !== owner) return;
+              void latest.current.changeHabits(d => ({ ...d, habits: d.habits.map(h => h.id === reminder.habitId ? { ...h, reminderSnoozedUntil: Date.now() + 15 * 60000 } : h) }));
+            } });
+          else void showSystemNotification(reminder.title, reminder.body, reminder.id, "habits");
+          continue;
+        }
+        if (pushActiveHere()) {
           // The server sends the system notification; only show it in-app while the app is in view.
           if (Platform.OS !== "web" || document.visibilityState === "visible") {
             show({ id: reminder.id, message: reminder.title, description: reminder.body, duration: 15_000 });
           }
           continue;
         }
-        showSystemNotification(reminder.title, reminder.body, reminder.id, reminder.kind === "habit" ? "habits" : reminder.kind === "task" ? "tasks" : "").then(
+        showSystemNotification(reminder.title, reminder.body, reminder.id, reminder.kind === "task" ? "tasks" : "").then(
           (shown) => {
             if (!shown) show({ id: reminder.id, message: reminder.title, description: reminder.body, duration: 15_000 });
           }

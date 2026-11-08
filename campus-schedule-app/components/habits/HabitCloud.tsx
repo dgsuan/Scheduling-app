@@ -148,6 +148,7 @@ export function HabitCloudControls() {
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const connect = async (merge: boolean) => {
     setBusy(true); setError('');
     try { await capability(); await store.open(user!.id, merge); setConfirm(false); }
@@ -155,8 +156,10 @@ export function HabitCloudControls() {
     finally { setBusy(false); }
   };
   const connected = !!user && !store.locked && store.data.cloud?.ownerId === user.id;
+  const needsAttention = store.locked || !!error || !!store.error || (connected && cloud.owner === user.id && cloud.conflicts.length > 0);
   return <View className="bg-card border-border mb-5 gap-3 rounded-xl border p-4">
-    <Text className="font-semibold">Habit cloud sync</Text>
+    <View className="flex-row items-center justify-between gap-2"><Text className="text-muted-foreground flex-1 text-sm" accessibilityLiveRegion="polite">{connected && cloud.owner === user.id ? cloud.message : store.locked ? 'Account access needed' : 'Saved on this device'}</Text><Button size="sm" variant="ghost" accessibilityState={{ expanded: expanded || needsAttention }} onPress={() => setExpanded(!expanded)}><Text>{expanded ? 'Close' : 'Sync settings'}</Text></Button></View>
+    {(expanded || needsAttention) && <View className="gap-3">
     {!authReady || !store.ready ? <Text>Loading account…</Text> : connected ? <>
       <Text className="text-muted-foreground text-sm">{cloud.owner === user.id ? cloud.message : 'Connecting habits…'} · {user.email}</Text>
       <Button variant="outline" disabled={cloud.busy} onPress={() => request?.()}><Text>{cloud.busy ? 'Syncing…' : 'Sync habits now'}</Text></Button>
@@ -169,5 +172,6 @@ export function HabitCloudControls() {
     </>}
     {!!error && <Text className="text-destructive">{error}</Text>}
     {!!store.error && <Text className="text-destructive">{store.error}</Text>}
+    </View>}
   </View>;
 }

@@ -10,7 +10,7 @@ import { HabitCheckIn } from "./HabitCheckIn";
 export function TodayHabits() {
   const { data, ready, habitError, retryHabits } = useHabits();
   const now = useNow();
-  const due = data.habits.filter(h => h.schedules.at(-1)?.state === "active").flatMap(h => { const date = habitDate(h.schedules.at(-1)!.timezone, now.getTime()); return habitOccurrences(h, date, date).map(o => ({ h, o })); });
+  const due = data.habits.flatMap(h => { const date = habitDate(h.schedules.at(-1)!.timezone, now.getTime()); return habitOccurrences(h, date, date).map(o => ({ h, o })); });
   const completed = due.filter(({ h, o }) => habitProgress(h, o, data.logs, now.getTime()).ratio === 1).length;
   return <View className="bg-card border-border my-5 gap-3 rounded-xl border p-4">
     <View className="flex-row items-center justify-between gap-2"><Text className="text-lg font-semibold">Habits</Text><Button variant="ghost" size="sm" onPress={() => router.push("/habits")}><Text>Manage habits</Text></Button></View>

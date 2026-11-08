@@ -1,5 +1,25 @@
 # Habit integration — first local release
 
+## 8 November UX and quality-of-life additions (local)
+
+See `HABIT_GROWTH_SETUP.md` for current behavior, limitations and backend setup. Added Today/Library/Insights, progressive creation, functional templates, compact cloud controls, management inside Details, quantity shortcuts, undo-last, routine labels/cues, optional reflections/moods, period reports, activity calendar, CSV and derived milestones. These supersede the corresponding pending items below.
+
+Duration habits now support Study → Break → Continue, live progress, saved focus blocks, configurable/optional Pomodoro (25/5, 30/10, 60/20 or custom), break countdowns and persistent in-app prompts. Breaks do not earn duration credit. Day-boundary caps prevent overnight overcounting. Inactivity reminders have per-habit enable/disable, custom intervals and allowed hours, reset after activity, goal suppression and 15-minute snooze. App-open delivery only; global reminders must be on.
+
+Added source for optional consent-based AI coaching and invitation-only accountability circles, with migration 0009 and the habit-coach Edge Function. Backend setup/deployment is still required. The user subsequently authorized tests; nothing was published.
+
+### Verification after authorization
+
+- TypeScript and production web export passed.
+- All logic suites passed, including added reminder interval/reset/quiet-hours/snooze tests, reports, CSV privacy/formula escaping, milestones and configuration validation.
+- Habit browser tests passed: daily tracking, history, phone layout/navigation, study/break/continue, reload recovery, capped Pomodoro timing, no break credit, free timer, editable reminder settings, actual inactivity toast/snooze, storage failure/retry and Calendar. A new failed-create/retry regression caught duplicate habits; stable editor IDs now prevent that, and the test passes.
+- Mocked two-account/two-device cloud browser tests passed, including offline corrections, conflicts and account isolation.
+- Isolated PostgreSQL tests passed for migrations 0007–0009, reruns, immutable history, ownership, CAS, circle invitations/membership/check-in/undo/leave, rate limiting and anonymous denial.
+- The real coaching handler passed with mocked auth/provider IO: consent, authentication, input limits, rate-limit failure, privacy allowlisting and response parsing. No live model requests or hosted database writes were made.
+- Fixed missing web aria-selected state on navigation tabs. Updated stale planning/guide test expectations; both suites pass.
+- All 14 browser suites passed across the initial run, resumed suites and corrected reruns: core browser, images, settings, features, CRS, planning, deadlines, guide, Form 5, Eka, board, responsive layouts, sticky and habits. The initial sequential run was interrupted when a rebuild replaced its served files; remaining suites were rerun against the completed build. The resumed batch reported the two stale assertions above as failures; both passed their subsequent individual reruns. No failing test remains from these runs.
+- Live `test:security` was not run: it requires two configured real test accounts and writes to hosted Supabase. The isolated database tests cover the new security rules locally. No native-device or live AI/provider test was performed.
+
 This implements the initial usable tracking slice of `../HABIT_TRACKER_INTEGRATION.md`. It does **not** claim completion of all four phases or all Phase 1 release gates.
 
 ## Available
@@ -25,8 +45,8 @@ This implements the initial usable tracking slice of `../HABIT_TRACKER_INTEGRATI
 - Schedule edits preserve prior versions. Backup merge imports whole new habits and their logs, keeping existing habits unchanged; it is not a two-device event-history merge.
 - Cloud sync unions independently identified check-ins, preserves durable local pending changes through reload, and acknowledges writes only after success. Conflicting definitions require an explicit local/cloud choice; incompatible schedule history is rejected rather than dropped. Full snapshots currently fetch the account's habit rows (bounded by existing account quotas), so large-history performance still needs measurement. Personal account deletion clears its local habit cache; guest and other account caches remain separate.
 - External JSON backups omit cloud ownership/base metadata. Restore retains the current profile's ownership and sync base. Export/restore is blocked while the active habit profile belongs to another account. Account caches are device-local storage, not encrypted vaults.
-- Sorting/reordering, tags, routines, stacking, goals, extended reports, CSV, reflections, protected streaks and adaptive suggestions remain in the roadmap.
-- Rewards, companion, growth map, feature presets, AI coach, social challenges, native widgets and native background notifications are not implemented.
+- Reordering, tags, richer routine sequencing, broader goals, protected streaks and automatic adaptive suggestions remain in the roadmap. Sorting, routine labels/cues, period reports, CSV and optional reflections are now implemented locally as described above.
+- Derived activity points, levels and milestones are implemented locally. Companion/cosmetics, growth map, feature presets, richer social challenges, native widgets and native background notifications remain unimplemented. Optional AI coaching/circle source exists but still requires backend setup.
 - No user acceptance study or 100-habit/10,000-log device benchmark has been performed. This is not a production release certification.
 
 ## Compatibility and verification
