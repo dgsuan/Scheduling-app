@@ -1,7 +1,11 @@
 import { HabitCloudControls } from "@/components/habits/HabitCloud";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { ScrollView, View, Pressable } from "react-native";
+import { CalendarDays, Bell, Timer, SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react-native";
+import { Icon } from "@/components/ui/icon";
+import { DatePickerField } from "@/components/DatePickerField";
+import { TimePickerField } from "@/components/TimePickerField";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { HabitCheckIn } from "@/components/habits/HabitCheckIn";
@@ -54,6 +58,8 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
   const [reminderEnd, setReminderEnd] = useState(habit?.reminderEnd ?? "21:00");
   const [error, setError] = useState("");
   const [advanced, setAdvanced] = useState(false);
+  const [option, setOption] = useState("tracking");
+  const [datesOpen, setDatesOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const schedule: HabitSchedule = { id: revisionId, from, until: until || undefined, timezone: zone, frequency, weekdays, interval: Number(interval), quota: Number(quota), weekStart: old?.weekStart ?? 1, slots: slots.split(",").map(s => s.trim()).sort(), target: type === "binary" ? 1 : Number(target) * (type === "duration" ? 60 : 1), unit: type === "duration" ? "minutes" : unit, state: old?.state ?? "active" };
   const scheduleChanged = !old || (Object.keys(schedule) as (keyof HabitSchedule)[]).some(key => key !== "id" && key !== "from" && JSON.stringify(schedule[key]) !== JSON.stringify(old[key]));
@@ -68,7 +74,7 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
     setSaving(false);
     if (saved) onClose(); else setError("Your changes are waiting to save. Use Retry saving before continuing.");
   };
-  return <View className="bg-card border-border mb-6 gap-4 rounded-xl border p-5">
+  return <View className="bg-card border-border mb-6 w-full max-w-3xl self-center gap-5 rounded-2xl border p-4 sm:p-6">
     <Text className="text-xl font-semibold">{habit ? "Edit habit" : "Create a habit"}</Text>
     {!habit && <View className="flex-row flex-wrap gap-2">{[
       { title: "Study", type: "duration" as HabitType, target: "120", unit: "minutes", category: "Learning" },
@@ -78,31 +84,48 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
     <Field label="Habit name" value={title} onChange={setTitle} />
     <Text className="text-muted-foreground text-sm">{frequency === "daily" ? "Every day" : frequency === "weekly" ? `${quota} days per week` : "Custom schedule"} · {type === "binary" ? "One-tap check-in" : `${target} ${type === "duration" ? "minutes" : unit}`} · {slots === "00:00" ? "Any time" : slots}</Text>
     {type === "duration" && <Field label="Daily study / focus goal (minutes)" value={target} onChange={setTarget} />}
-    <Button variant="ghost" className="self-start" accessibilityState={{ expanded: advanced }} onPress={() => setAdvanced(!advanced)}><Text>{advanced ? "Hide options" : "Customize habit"}</Text></Button>
+    <Button variant="outline" className="self-start" accessibilityState={{ expanded: advanced }} onPress={() => setAdvanced(!advanced)}><Icon as={SlidersHorizontal} size={16} /><Text>{advanced ? "Hide options" : "Customize habit"}</Text><Icon as={advanced ? ChevronUp : ChevronDown} size={16} /></Button>
     {advanced && <View className="gap-4">
+    <View className="flex-row flex-wrap gap-2">{[
+      { id: "tracking", label: "Tracking", icon: Timer },
+      { id: "schedule", label: "Schedule", icon: CalendarDays },
+      { id: "reminders", label: "Reminders", icon: Bell },
+      { id: "details", label: "Details", icon: SlidersHorizontal },
+    ].map(item => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`${item.label} options`} accessibilityState={{ selected: option === item.id }} onPress={() => setOption(item.id)} className={`min-h-12 flex-1 items-center justify-center gap-1 rounded-xl px-2 py-3 web:focus-visible:outline web:focus-visible:outline-2 web:focus-visible:outline-primary ${option === item.id ? "bg-primary/10" : "bg-muted/40 web:hover:bg-muted"}`}><Icon as={item.icon} size={18} className={option === item.id ? "text-primary" : "text-muted-foreground"} /><Text className={`text-xs font-medium ${option === item.id ? "text-primary" : "text-muted-foreground"}`}>{item.label}</Text></Pressable>)}</View>
+    <View className="bg-muted/20 border-border gap-4 rounded-xl border p-4 sm:p-5">
+    {option === "tracking" && <View className="gap-4">
+    <View className="gap-1"><Text className="font-semibold">How you'll track it</Text><Text className="text-muted-foreground text-sm">Choose what counts as progress.</Text></View>
     {!habit && <Choices values={["binary", "quantity", "duration", "avoid"] as HabitType[]} value={type} onChange={setType} />}
     <Text className="text-muted-foreground text-sm">{type === "avoid" ? "Log amounts and explicitly confirm your observation. No logs alone do not count as success." : type === "duration" ? "Track minutes manually or with the focus timer toward your target." : type === "quantity" ? "Add measured amounts toward your target." : "One tap to mark a scheduled habit done."}</Text>
     {type !== "binary" && type !== "duration" && <><Field label={type === "avoid" ? "Maximum amount" : "Target amount"} value={target} onChange={setTarget} /><Field label="Unit" value={unit} onChange={setUnit} /></>}
     {type === "duration" && <><Button variant="outline" accessibilityState={{ checked: pomodoroEnabled }} onPress={() => setPomodoroEnabled(!pomodoroEnabled)}><Text>Pomodoro {pomodoroEnabled ? "on" : "off"}</Text></Button>{pomodoroEnabled && <><View className="flex-row flex-wrap gap-2">{[{ focus: 25, rest: 5 }, { focus: 30, rest: 10 }, { focus: 60, rest: 20 }].map(p => <Button key={p.focus} variant={Number(focusMinutes) === p.focus && Number(breakMinutes) === p.rest ? "default" : "outline"} onPress={() => { setFocusMinutes(String(p.focus)); setBreakMinutes(String(p.rest)); }}><Text>{p.focus} focus / {p.rest} break</Text></Button>)}</View><Field label="Focus block (minutes)" value={focusMinutes} onChange={setFocusMinutes} /><Field label="Break length (minutes)" value={breakMinutes} onChange={setBreakMinutes} /></>}<Text className="text-muted-foreground text-xs">{pomodoroEnabled ? "A gentle prompt at the end of each block. Breaks never count toward your goal." : "Use a normal start-and-pause timer without timed break prompts."}</Text></>}
-    <Text className="font-medium">Schedule</Text><Choices values={["daily", "weekdays", "interval", "weekly"] as HabitSchedule["frequency"][]} value={frequency} onChange={setFrequency} />
+    </View>}
+    {option === "schedule" && <View className="gap-4">
+    <View className="gap-1"><Text className="font-semibold">Make it fit your day</Text><Text className="text-muted-foreground text-sm">Every day, at any time, is a good place to start.</Text></View>
+    <Choices values={["daily", "weekdays", "interval", "weekly"] as HabitSchedule["frequency"][]} value={frequency} onChange={setFrequency} />
     {frequency === "weekdays" && <View className="flex-row flex-wrap gap-2">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, i) => <Button key={day} size="sm" variant={weekdays.includes(i) ? "default" : "outline"} onPress={() => setWeekdays(ds => ds.includes(i) ? ds.filter(n => n !== i) : [...ds, i])}><Text>{day}</Text></Button>)}</View>}
     {frequency === "interval" && <Field label="Repeat every N days" value={interval} onChange={setInterval} />}
-    {frequency === "weekly" ? <><Field label="Sessions per week (1–7)" value={quota} onChange={setQuota} /><Text className="text-muted-foreground text-sm">Monday–Sunday. At most one qualifying session per day.</Text></> : <Field label="Daily slots (24-hour times)" value={slots} onChange={setSlots} placeholder="00:00 or 08:00, 18:00" />}
-    <Field label={habit ? "Apply schedule from" : "Start date"} value={from} onChange={setFrom} placeholder="YYYY-MM-DD" />
-    <Field label="End date (optional)" value={until} onChange={setUntil} placeholder="YYYY-MM-DD" />
-    <Field label="Timezone" value={zone} onChange={setZone} />
+    {frequency === "weekly" ? <><Field label="Sessions per week (1–7)" value={quota} onChange={setQuota} /><Text className="text-muted-foreground text-sm">Monday–Sunday. At most one qualifying session per day.</Text></> : <View className="gap-3"><Text className="text-sm font-medium">When?</Text><View className="flex-row flex-wrap gap-2"><Button size="sm" variant={slots === "00:00" ? "default" : "outline"} onPress={() => setSlots("00:00")}><Text>Any time</Text></Button><Button size="sm" variant={slots !== "00:00" ? "default" : "outline"} onPress={() => { if (slots === "00:00") setSlots("09:00"); }}><Text>Set times</Text></Button></View>{slots !== "00:00" && <><View className="flex-row flex-wrap gap-2">{slots.split(",").map((slot, i) => <View key={i} className="flex-row items-center gap-1"><TimePickerField value={slot.trim()} accessibilityLabel={`Habit time ${i + 1}`} onChange={value => { const times = slots.split(",").map(s => s.trim()); if (value) times[i] = value; else times.splice(i, 1); setSlots(times.join(", ") || "00:00"); }} /></View>)}</View><Button size="sm" className="self-start" variant="ghost" disabled={slots.split(",").length >= 24} onPress={() => { const times = slots.split(",").map(s => s.trim()); const available = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, "0")}:00`).find(t => !times.includes(t)); if (available) setSlots([...times, available].join(", ")); }}><Text>+ Add another time</Text></Button></>}</View>}
+    <View className="border-border border-t pt-3"><Button variant="ghost" className="h-auto min-h-11 justify-between" accessibilityState={{ expanded: datesOpen }} onPress={() => setDatesOpen(!datesOpen)}><Text>Dates & timezone</Text><Icon as={datesOpen ? ChevronUp : ChevronDown} size={16} /></Button><Text className="text-muted-foreground px-3 text-xs">{from} · {until ? `Until ${until}` : "No end date"} · {zone}</Text></View>
+    {datesOpen && <View className="gap-4"><View className="flex-row flex-wrap gap-4"><View className="min-w-48 flex-1 gap-2"><Text className="text-sm font-medium">{habit ? "Apply schedule from" : "Start date"}</Text><DatePickerField value={from} onChange={v => v && setFrom(v)} accessibilityLabel="Habit start date" /></View><View className="min-w-48 flex-1 gap-2"><Text className="text-sm font-medium">End date</Text><DatePickerField value={until || undefined} onChange={v => setUntil(v ?? "")} placeholder="No end date" accessibilityLabel="Habit end date" /></View></View><Field label="Timezone" value={zone} onChange={setZone} /></View>}
+    </View>}
+    {option === "schedule" && datesOpen && !!until && <Button className="self-start" variant="ghost" size="sm" onPress={() => setUntil("")}><Text>Remove end date</Text></Button>}
+    {option === "details" && <View className="gap-4"><View className="gap-1"><Text className="font-semibold">Make it yours</Text><Text className="text-muted-foreground text-sm">All optional. Add only what helps you.</Text></View>
     <Field label="Category" value={category} onChange={setCategory} /><Field label="Notes" value={notes} onChange={setNotes} />
     <Field label="Routine (optional)" value={routine} onChange={setRoutine} placeholder="e.g. Morning or Wind down" />
     <Field label="After I… (optional cue)" value={cue} onChange={setCue} placeholder="e.g. Finish breakfast, I'll read for 10 minutes" />
+    </View>}
+    {option === "reminders" && <View className="gap-4"><View className="gap-1"><Text className="font-semibold">A gentle nudge</Text><Text className="text-muted-foreground text-sm">Choose when you'd like a reminder.</Text></View>
     <Button variant="outline" onPress={() => setReminder(!reminder)}><Text>{reminder ? "Reminders on" : "Reminders off"}</Text></Button>
-    {reminder && <><Field label="Remind after no check-in for (minutes, optional)" value={reminderEvery} onChange={setReminderEvery} placeholder="120 for every 2 hours" />{!!reminderEvery && <><Field label="Reminder hours start (HH:MM)" value={reminderStart} onChange={setReminderStart} /><Field label="Reminder hours end (HH:MM)" value={reminderEnd} onChange={setReminderEnd} /></>}<Text className="text-muted-foreground text-xs">Interval reminders use this habit's timezone, reset after a check-in, and stop when the goal is reached. Choose hours within the same day. Leave the interval blank for scheduled-time reminders.</Text></>}
+    {reminder && <><View className="flex-row flex-wrap gap-2">{[{ label: "At scheduled times", value: "" }, { label: "After 1 hour", value: "60" }, { label: "After 2 hours", value: "120" }].map(preset => <Button key={preset.label} size="sm" variant={reminderEvery === preset.value ? "default" : "outline"} onPress={() => setReminderEvery(preset.value)}><Text>{preset.label}</Text></Button>)}</View><Field label="Remind after no check-in for (minutes, optional)" value={reminderEvery} onChange={setReminderEvery} placeholder="Or enter your own interval" />{!!reminderEvery && <View className="gap-2"><Text className="text-sm font-medium">Only remind me between</Text><View className="flex-row flex-wrap items-center gap-3"><TimePickerField value={reminderStart} onChange={v => v && setReminderStart(v)} accessibilityLabel="Reminder hours start" /><Text className="text-muted-foreground">and</Text><TimePickerField value={reminderEnd} onChange={v => v && setReminderEnd(v)} accessibilityLabel="Reminder hours end" /></View></View>}<Text className="text-muted-foreground text-xs">Resets after a check-in and stops when your goal is reached. Leave the interval empty to use scheduled times.</Text></>}
     <Text className="text-muted-foreground text-xs">Reminders use your notification settings and work while the app is open.</Text>
     {reminder && !settings.reminders.enabled && <View className="gap-2"><Text className="text-sm">App reminders are currently off. Enable them in Settings for this reminder to run.</Text><Button variant="outline" className="self-start" onPress={() => router.push("/settings")}><Text>Open reminder settings</Text></Button></View>}
-    {valid && <Text className="text-muted-foreground text-sm">Next: {habitOccurrences(next, from, addDaysIso(from, 14)).slice(0, 3).map(o => `${o.date} ${o.slot}`).join(" · ") || "No opportunities in the next two weeks"}</Text>}
+    </View>}
+    </View>
     </View>}
     {habit && <Text className="text-muted-foreground text-sm">{scheduleChanged ? `Schedule changes start ${from}. Your history is kept.` : "Preferences update when saved. Timer settings apply to the next focus or break block."}</Text>}
     {error && <Text className="text-destructive">{error}</Text>}
-    <View className="flex-row gap-2"><Button disabled={saving || !title.trim()} onPress={() => void save()}><Text>{saving ? "Saving…" : "Save habit"}</Text></Button><Button disabled={saving} variant="ghost" onPress={onClose}><Text>Cancel</Text></Button></View>
+    <View className="border-border flex-row items-center gap-2 border-t pt-4"><Button className="min-w-32" disabled={saving || !title.trim()} onPress={() => void save()}><Text>{saving ? "Saving…" : "Save habit"}</Text></Button><Button disabled={saving} variant="ghost" onPress={onClose}><Text>Cancel</Text></Button></View>
   </View>;
 }
 export default function HabitsScreen() {
