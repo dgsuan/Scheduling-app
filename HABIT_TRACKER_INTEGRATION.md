@@ -1,5 +1,38 @@
 # Momentum Habit Tracker Integration
 
+## Standing UX priority — confirmed 8 November 2026
+
+The user's priority is ease of use, quality of life, and easy access across the existing Scheduling App. The pasted habit-tracker blueprint is a long-term feature reference, not permission to expose every feature or control at once. Keep the surface simple while adding optional depth. Preserve Isked and reuse its calendar, task, focus, reminder, theme, and account systems.
+
+### Everyday experience comes first
+
+- Keep Habits easy to find in primary navigation. Returning users should reach due habits directly, with one-tap ordinary completion and immediate, understandable feedback.
+- Give each screen one clear primary action. A habit row should emphasize its name, progress, and check-in; open the habit for details and place Edit, Pause, Archive, and Delete in a secondary menu instead of displaying a row of buttons on every card.
+- Start creation with a name or useful template and sensible defaults. Reveal targets, custom schedules, multiple slots, timezone, privacy and other advanced settings only when relevant or requested.
+- Put sync/account setup in settings or a compact status control. Do not let a large cloud-setup panel dominate daily tracking. Explain failures where action is needed without repeatedly interrupting successful use.
+- Use plain labels, consistent placement, generous touch targets, keyboard access, readable contrast, and screen-reader labels. Feedback and charts must not depend on color alone. Respect reduced motion; haptics and celebrations are optional.
+- Keep navigation compact on phones. Insights and Growth belong inside the habit area rather than adding many new bottom tabs. Preserve access to existing app destinations and deep links.
+
+### Quality-of-life work to prioritize
+
+1. Fast check-in and useful quantity increments; immediate undo and easy correction of past entries.
+2. Quick-add templates with meaningful defaults; reach the first habit without an account or a long onboarding sequence.
+3. Calendar visibility alongside commitments; duration habits should have an easy route to the existing focus timer, with optional Pomodoro support later.
+4. Gentle, controllable reminders with snooze, reschedule and opt-out; permission requests only when enabling reminders.
+5. Easy pause/archive/resume without lost history; forgiving rest and comeback support rather than punishment.
+6. Reliable offline use, clear save/sync feedback, portable JSON/CSV exports and recovery paths.
+7. Simple organization, search, quick notes, dark mode and optional brief reflection. Avoid making daily reflection another required task.
+8. Quick access outside the full app where supported: compact sticky actions first, native home-screen widgets when platform support is implemented and verified. Do not describe the sticky view as a native widget.
+9. Private habits hidden from sharing, notification previews and widgets by default; hiding content is not equivalent to encryption or an app lock.
+
+### Advanced features remain optional
+
+Analytics, Momentum Score explanations, routines, adaptive suggestions, mood tracking, XP, companion, quests, AI and social features should be discovered progressively. Feature presets may help, but users must be able to mix or hide features without losing records. Suggestions require acceptance; AI analysis and sharing require explicit consent. Missing a day must not harm a companion or remove earned cosmetics.
+
+Before adding a visible control, ask whether it helps the user's immediate task, whether it can live in details/settings, and whether an existing action already serves the purpose. Prioritize removing steps and confusion over increasing the visible feature count. A new user should understand the basic experience in about 30 seconds; that is a design target, not a verified usability result. Validate the core experience with users before widening scope.
+
+These are implementation priorities and review criteria. They do not mean all listed capabilities are already shipped. See `campus-schedule-app/HABITS_STATUS.md` for current delivery status.
+
 Implementation specification for the existing Scheduling App (Isked)
 
 Prepared: 7 November 2026. Status: planning document; no application code or database has been changed.
