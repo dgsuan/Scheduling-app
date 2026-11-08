@@ -10,6 +10,8 @@ Added source for optional consent-based AI coaching and invitation-only accounta
 
 ### Verification after authorization
 
+Goal-edit correction: saving a target/unit now updates the current daily or weekly goal immediately and carries it forward. Dated goal history preserves closed periods and existing occurrence IDs/check-ins; schedule changes still take effect on the displayed future date. Resaving a previously queued target also fixes today's stale card. The added metadata works with the existing cloud schema; no extra SQL migration is required. Older app builds should be refreshed to display the new goal history.
+
 - TypeScript and production web export passed.
 - All logic suites passed, including added reminder interval/reset/quiet-hours/snooze tests, reports, CSV privacy/formula escaping, milestones and configuration validation.
 - Habit browser tests passed: daily tracking, history, phone layout/navigation, study/break/continue, reload recovery, capped Pomodoro timing, no break credit, free timer, editable reminder settings, actual inactivity toast/snooze, storage failure/retry and Calendar. A new failed-create/retry regression caught duplicate habits; stable editor IDs now prevent that, and the test passes.

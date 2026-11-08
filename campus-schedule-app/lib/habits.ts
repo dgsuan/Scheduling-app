@@ -8,7 +8,7 @@ export type HabitSchedule = {
   slots: string[]; target: number; unit: string;
   state: "active" | "paused" | "archived";
 };
-export type Habit = { id: string; title: string; type: HabitType; category: string; notes: string; createdAt: number; schedules: HabitSchedule[]; reminder: boolean; routine?: string; cue?: string; pomodoroEnabled?: boolean; focusMinutes?: number; breakMinutes?: number; reminderEveryMinutes?: number; reminderSnoozedUntil?: number; reminderStart?: string; reminderEnd?: string };
+export type Habit = { id: string; title: string; type: HabitType; category: string; notes: string; createdAt: number; schedules: HabitSchedule[]; reminder: boolean; routine?: string; cue?: string; pomodoroEnabled?: boolean; focusMinutes?: number; breakMinutes?: number; reminderEveryMinutes?: number; reminderSnoozedUntil?: number; reminderStart?: string; reminderEnd?: string; goals?: { from: string; target: number; unit: string }[] };
 export type HabitLog = { id: string; habitId: string; occurrenceKey: string; date: string; at: number; amount: number; confirmed: boolean; retracts?: string; sourceId?: string; reflection?: string; mood?: "low" | "okay" | "good" };
 export type HabitData = { version: 1; habits: Habit[]; logs: HabitLog[]; cloud?: { ownerId: string; base: Record<string, { data: Habit | HabitLog; updated_at: string }> } };
 export const emptyHabits = (): HabitData => ({ version: 1, habits: [], logs: [] });
@@ -58,11 +58,18 @@ export function habitOccurrences(habit: Habit, from: string, to: string): HabitO
       const key = `${habit.id}:${s.id}:${period}:${slot}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      result.push({ key, habitId: habit.id, date: start, endDate: end, slot, schedule: s,
+      // A goal edit updates the current daily/weekly period without replacing
+      // its occurrence key or rewriting the immutable schedule used by logs.
+      const goal = habit.goals?.filter(g => g.from < end).at(-1);
+      result.push({ key, habitId: habit.id, date: start, endDate: end, slot, schedule: goal ? { ...s, target: goal.target, unit: goal.unit } : s,
         startAt: habitTime(start, slot, s.timezone), endAt: habitTime(end, "00:00", s.timezone) });
     }
   }
   return result;
+}
+export function withHabitGoal(habit: Habit, target: number, unit: string, now = Date.now()): Habit {
+  const from = habitDate(habit.schedules.at(-1)!.timezone, now);
+  return { ...habit, goals: [...(habit.goals ?? []).filter(g => g.from < from), { from, target, unit }] };
 }
 export function activeHabitLogs(logs: HabitLog[]): HabitLog[] {
   const unique = [...new Map(logs.map(l => [l.id, l])).values()];
@@ -106,6 +113,14 @@ export function validateHabitData(value: unknown): value is HabitData {
     for (const h of d.habits) {
       if (!h || typeof h.id !== "string" || !h.id || h.id.length > 40 || ids.has(h.id) || typeof h.title !== "string" || !h.title.trim() || !["binary", "quantity", "duration", "avoid"].includes(h.type) || typeof h.category !== "string" || typeof h.notes !== "string" || !Number.isFinite(h.createdAt) || typeof h.reminder !== "boolean" || !Array.isArray(h.schedules) || !h.schedules.length) return false;
       ids.add(h.id);
+      if (h.goals !== undefined) {
+        if (!Array.isArray(h.goals)) return false;
+        let previousGoal = "";
+        for (const g of h.goals) {
+          if (!g || !validDate(g.from) || g.from <= previousGoal || !Number.isFinite(g.target) || g.target < 0 || (h.type !== "avoid" && g.target === 0) || typeof g.unit !== "string") return false;
+          previousGoal = g.from;
+        }
+      }
       if ((h.routine !== undefined && (typeof h.routine !== "string" || h.routine.length > 100)) || (h.cue !== undefined && (typeof h.cue !== "string" || h.cue.length > 500))) return false;
       for (const field of ["focusMinutes", "breakMinutes", "reminderEveryMinutes"] as const) {
         if (h[field] !== undefined && (!Number.isInteger(h[field]) || h[field]! < 1 || h[field]! > 1440)) return false;

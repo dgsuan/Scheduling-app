@@ -107,12 +107,21 @@ try {
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('campus-schedule:habits:v1')).habits.length === 3);
   const configuredWater = (await read()).habits.find(h => h.title === 'Drink water');
   assert.equal(configuredWater.reminderEveryMinutes, 90); assert.equal(configuredWater.reminderStart, '08:00'); assert.equal(configuredWater.reminderEnd, '20:00'); assert.equal(configuredWater.reminder, true);
+  await click('+1 glasses');
+  await page.click('[aria-label="Details for Drink water"]');
+  // Scope editing to the water card because another habit's details may be open.
+  await page.evaluate(() => { const button = document.querySelector('[aria-label="Details for Drink water"]'); const card = button.parentElement.parentElement; [...card.querySelectorAll('button,[role="button"]')].find(e => e.textContent.trim() === 'Edit').click(); });
+  await click('Customize habit');
+  await fill('Target amount', '13'); await fill('Unit', 'Glasses'); await click('Save habit');
+  await page.waitForFunction(() => document.body.innerText.includes('1 / 13 Glasses'));
+  await page.reload(); await page.waitForFunction(() => document.body.innerText.includes('1 / 13 Glasses'));
+  assert.equal((await read()).habits.find(h => h.title === 'Drink water').schedules.length, 1, 'goal-only edits do not replace schedule history');
   await page.evaluate(() => { const k = 'campus-schedule:settings:v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); s.reminders = { ...s.reminders, enabled: true }; localStorage.setItem(k, JSON.stringify(s)); });
   await page.evaluateOnNewDocument(fixed => {
     const RealDate = Date, start = RealDate.now();
     class TestDate extends RealDate { constructor(...args) { if (args.length) super(...args); else super(fixed + RealDate.now() - start); } static now() { return fixed + RealDate.now() - start; } }
     window.Date = TestDate;
-  }, Date.parse(`${configuredWater.schedules[0].from}T09:30:00+08:00`));
+  }, Date.parse(`${configuredWater.schedules[0].from}T09:30:00+08:00`) + 86400000);
   await page.reload();
   await page.waitForFunction(() => document.body.innerText.includes('Time for a water break?'));
   await click('Snooze 15 min');

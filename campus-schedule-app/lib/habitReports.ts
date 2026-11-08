@@ -25,7 +25,8 @@ export function habitCsv(data: HabitData): string {
     if (log.reflection || log.mood) continue;
     const habit = habits.get(log.habitId);
     if (!habit) continue;
-    const schedule = habit.schedules.find(s => log.occurrenceKey.startsWith(`${habit.id}:${s.id}:`));
+    const schedule = habitOccurrences(habit, log.date, log.date).find(o => o.key === log.occurrenceKey)?.schedule
+      ?? habit.schedules.find(s => log.occurrenceKey.startsWith(`${habit.id}:${s.id}:`));
     rows.push([habit.title, habit.category, log.date, habit.type === "duration" ? log.amount / 60 : log.amount,
       habit.type === "duration" ? "minutes" : schedule?.unit ?? "times", log.confirmed, new Date(log.at).toISOString()]);
   }

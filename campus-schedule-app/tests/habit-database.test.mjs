@@ -81,6 +81,9 @@ try {
   await cas({ ...habit, title: 'Changed elsewhere' }, stamp); // Lost-ack replay.
   assert.equal((await db.query('select public.read_habit_items() as snapshot')).rows[0].snapshot.length, 1);
   await put('habit_log', 'l1', log, 'h1');
+  await put('habit', 'h1', { ...habit, goals: [{ from: '2026-11-08', target: 13, unit: 'glasses' }] });
+  const goalSnapshot = (await db.query('select public.read_habit_items() as snapshot')).rows[0].snapshot;
+  assert.equal(goalSnapshot.find(row => row.collection === 'habit').data.goals[0].target, 13, 'goal updates round-trip without changing used schedules');
   await put('habit_log', 'l1', log, 'h1'); // Idempotent retry.
   await assert.rejects(put('habit_log', 'l2', { ...log, id: 'l2' }, 'h1')); // Source uniqueness.
   await assert.rejects(put('habit_log', 'l1', { ...log, amount: 8 }, 'h1'));

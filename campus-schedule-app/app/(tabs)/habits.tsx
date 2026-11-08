@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useHabits, useSettings } from "@/context/store";
 import { addDaysIso } from "@/lib/dates";
-import { currentZone, habitDate, habitId, habitOccurrences, habitProgress, habitStats, validateHabitData, type Habit, type HabitSchedule, type HabitType } from "@/lib/habits";
+import { currentZone, habitDate, habitId, habitOccurrences, habitProgress, habitStats, validateHabitData, withHabitGoal, type Habit, type HabitSchedule, type HabitType } from "@/lib/habits";
 import { useNow } from "@/lib/useNow";
 
 function Choices<T extends string>({ values, value, onChange }: { values: T[]; value: T; onChange: (v: T) => void }) {
@@ -40,8 +40,9 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
   const [routine, setRoutine] = useState(habit?.routine ?? "");
   const [cue, setCue] = useState(habit?.cue ?? "");
   const [frequency, setFrequency] = useState<HabitSchedule["frequency"]>(old?.frequency ?? "daily");
-  const [target, setTarget] = useState(String(old ? (type === "duration" ? old.target / 60 : old.target) : 1));
-  const [unit, setUnit] = useState(old?.unit ?? "times");
+  const savedGoal = habit?.goals?.at(-1) ?? old;
+  const [target, setTarget] = useState(String(savedGoal ? (type === "duration" ? savedGoal.target / 60 : savedGoal.target) : 1));
+  const [unit, setUnit] = useState(savedGoal?.unit ?? "times");
   const [weekdays, setWeekdays] = useState(old?.weekdays ?? [1, 2, 3, 4, 5]);
   const [interval, setInterval] = useState(String(old?.interval ?? 2));
   const [quota, setQuota] = useState(String(old?.quota ?? 3));
@@ -62,9 +63,10 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
   const [datesOpen, setDatesOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const schedule: HabitSchedule = { id: revisionId, from, until: until || undefined, timezone: zone, frequency, weekdays, interval: Number(interval), quota: Number(quota), weekStart: old?.weekStart ?? 1, slots: slots.split(",").map(s => s.trim()).sort(), target: type === "binary" ? 1 : Number(target) * (type === "duration" ? 60 : 1), unit: type === "duration" ? "minutes" : unit, state: old?.state ?? "active" };
-  const scheduleChanged = !old || (Object.keys(schedule) as (keyof HabitSchedule)[]).some(key => key !== "id" && key !== "from" && JSON.stringify(schedule[key]) !== JSON.stringify(old[key]));
-  const next: Habit = { ...habit, id: recordId, title: title.trim(), type, category, notes, routine: routine.trim(), cue: cue.trim(), createdAt, schedules: scheduleChanged ? [...(habit?.schedules ?? []), schedule] : habit!.schedules, reminder,
+  const scheduleChanged = !old || (Object.keys(schedule) as (keyof HabitSchedule)[]).some(key => !["id", "from", "target", "unit"].includes(key) && JSON.stringify(schedule[key]) !== JSON.stringify(old[key]));
+  const draft: Habit = { ...habit, id: recordId, title: title.trim(), type, category, notes, routine: routine.trim(), cue: cue.trim(), createdAt, schedules: scheduleChanged ? [...(habit?.schedules ?? []), schedule] : habit!.schedules, reminder,
     ...(type === "duration" ? { pomodoroEnabled, focusMinutes: Number(focusMinutes), breakMinutes: Number(breakMinutes) } : {}), reminderEveryMinutes: reminderEvery ? Number(reminderEvery) : undefined, reminderStart, reminderEnd };
+  const next = habit ? withHabitGoal(draft, schedule.target, schedule.unit) : draft;
   const valid = validateHabitData({ version: 1, habits: [next], logs: [] });
   const save = async () => {
     if (!valid) { setError("Check the name, dates, timezone, target, weekdays, and times (HH:MM, separated by commas)."); return; }
@@ -123,7 +125,7 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
     </View>}
     </View>
     </View>}
-    {habit && <Text className="text-muted-foreground text-sm">{scheduleChanged ? `Schedule changes start ${from}. Your history is kept.` : "Preferences update when saved. Timer settings apply to the next focus or break block."}</Text>}
+    {habit && <Text className="text-muted-foreground text-sm">Your goal and unit update today when saved. Logged progress is kept.{scheduleChanged ? ` Schedule changes start ${from}.` : " Timer settings apply to the next block."}</Text>}
     {error && <Text className="text-destructive">{error}</Text>}
     <View className="border-border flex-row items-center gap-2 border-t pt-4"><Button className="min-w-32" disabled={saving || !title.trim()} onPress={() => void save()}><Text>{saving ? "Saving…" : "Save habit"}</Text></Button><Button disabled={saving} variant="ghost" onPress={onClose}><Text>Cancel</Text></Button></View>
   </View>;
