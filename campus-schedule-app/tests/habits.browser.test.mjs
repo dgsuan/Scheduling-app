@@ -154,6 +154,14 @@ try {
   await page.click('[role="tab"][aria-label="Habits"]');
   await click('Library'); await page.waitForSelector('[aria-label="Search habits"]');
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Main navigation fits mobile');
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await page.setOfflineMode(true);
+  await page.reload(); await click('Today');
+  await click('New habit'); await page.type('[aria-label="Habit name"]', 'Offline habit'); await click('Save habit');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('campus-schedule:habits:v1')).habits.some(h => h.title === 'Offline habit'));
+  await page.reload(); await page.waitForFunction(() => document.body.innerText.includes('Offline habit'));
+  await page.setOfflineMode(false);
   assert.deepEqual(errors, []);
   console.log("PASS habit creation, check-in/undo, reload, history, mobile layout, pause/resume, focus recovery, storage retry and Calendar filter");
 } finally { await browser?.close(); server.close(); }

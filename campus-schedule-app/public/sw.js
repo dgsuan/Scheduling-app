@@ -13,8 +13,18 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll([SHELL, new URL("manifest.webmanifest", SCOPE).href]))
-      .catch(() => {})
+      .then(async (cache) => {
+        // The first visit loads JS before this worker controls the page. Cache
+        // the shell's dependencies now so the next launch can be fully offline.
+        const response = await fetch(SHELL, { cache: "reload" });
+        if (!response.ok) throw new Error("App shell unavailable");
+        const html = await response.clone().text();
+        const assets = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
+          .map(match => new URL(match[1], SCOPE))
+          .filter(url => url.origin === SCOPE.origin && /\.(js|css)$/.test(url.pathname));
+        await cache.addAll([...new Set(assets.map(url => url.href)), new URL("manifest.webmanifest", SCOPE).href]);
+        await cache.put(SHELL, response);
+      })
   );
   self.skipWaiting();
 });
@@ -39,7 +49,7 @@ self.addEventListener("fetch", (event) => {
         .then((res) => {
           if (res.ok && url.href === SHELL) {
             const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(SHELL, copy));
+            event.waitUntil(caches.open(CACHE).then((c) => c.put(SHELL, copy)));
           }
           return res;
         })
@@ -76,7 +86,7 @@ self.addEventListener("fetch", (event) => {
         fetch(req).then((res) => {
           if (res.ok || res.type === "opaque") {
             const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
+            event.waitUntil(caches.open(CACHE).then((c) => c.put(req, copy)));
           }
           return res;
         })

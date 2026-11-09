@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AppState, View } from 'react-native';
+import { AppState, Platform, View } from 'react-native';
 import { useAuth } from '@/context/auth';
 import { useHabitCloudStore } from '@/context/store';
 import { Button } from '@/components/ui/button';
@@ -20,10 +20,13 @@ const message = (error: unknown) => {
   if (e.code === '40001') return 'Changed on another device. Sync again to review the latest version.';
   return e.message || 'Could not reach habit cloud storage. Your saved changes stay on this device; retry when online.';
 };
+const offline = () => Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.onLine;
+const OFFLINE_MESSAGE = 'Offline · Saved on this device. Will sync when you reconnect.';
 async function capability() {
   if (!supabase) throw new Error('Sign in to enable habit sync.');
   const { data, error } = await supabase.rpc('habit_sync_version');
-  if (error || data !== 2) throw new Error('Habit sync needs database update 0008. Your habits remain saved on this device.');
+  if (error) throw error;
+  if (data !== 2) throw new Error('Habit sync needs database update 0008. Your habits remain saved on this device.');
 }
 
 /** Habit adapter over the existing account, item table and local-write events.
@@ -56,6 +59,7 @@ export function HabitSyncEngine() {
     };
     const sync = async () => {
       if (!active()) return;
+      if (offline()) { update({ owner, busy: false, message: OFFLINE_MESSAGE }); return; }
       if (running) { again = true; return; }
       running = true; again = false;
       update({ owner, busy: true, message: 'Syncing habits…' });
@@ -95,7 +99,7 @@ export function HabitSyncEngine() {
           if (!saved) throw new Error('Upload succeeded, but its acknowledgement could not be saved. Retry saving; the upload is safe to replay.');
         }
         if (active()) update({ message: again ? 'Checking remaining habit changes…' : 'Habits synced', conflicts: [] });
-      } catch (e) { if (active()) update({ message: message(e) }); again = false; }
+      } catch (e) { if (active()) update({ message: live.current.store.error ? message(e) : offline() ? OFFLINE_MESSAGE : `${message(e)} Your changes are saved locally; sync will retry automatically.` }); again = false; }
       finally {
         running = false;
         if (active()) { update({ busy: false }); if (again) timer = setTimeout(() => void sync(), 500); }
@@ -130,13 +134,16 @@ export function HabitSyncEngine() {
     const unsubscribe = onLocalWrite(key => {
       if (key !== 'campus-schedule:habits:v1') return;
       if (running) { again = true; return; }
-      update({ message: 'Habit changes waiting to sync' });
+      update({ message: offline() ? OFFLINE_MESSAGE : 'Saved on this device · Waiting to sync' });
       clearTimeout(timer); timer = setTimeout(() => void sync(), 1200);
     });
     const interval = setInterval(() => void sync(), 60000);
     const app = AppState.addEventListener('change', state => { if (state === 'active') void sync(); });
+    const reconnect = () => { clearTimeout(timer); void sync(); };
+    const disconnect = () => { if (active()) update({ owner, message: OFFLINE_MESSAGE }); };
+    if (Platform.OS === 'web') { window.addEventListener('online', reconnect); window.addEventListener('offline', disconnect); }
     void sync();
-    return () => { disposed = true; clearTimeout(timer); clearInterval(interval); app.remove(); unsubscribe(); request = undefined; resolveConflict = undefined; };
+    return () => { disposed = true; clearTimeout(timer); clearInterval(interval); app.remove(); unsubscribe(); if (Platform.OS === 'web') { window.removeEventListener('online', reconnect); window.removeEventListener('offline', disconnect); } request = undefined; resolveConflict = undefined; };
   }, [auth.ready, auth.user?.id, store.ready, store.locked, owner]);
   return null;
 }

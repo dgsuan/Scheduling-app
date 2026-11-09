@@ -1,6 +1,7 @@
 import type { Session, User } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { disablePush } from "@/lib/push";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
@@ -60,13 +61,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!supabase) return;
     let cancelled = false;
-    supabase.auth.getSession().then(({ data }) => {
+    let authoritative = false;
+    // Local access must not wait for an expired token to refresh over a network.
+    // This is only the SDK's existing device session, never another profile's
+    // cached habits. Server requests still require valid Supabase credentials.
+    const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
+    const cached = url ? AsyncStorage.getItem(`sb-${new URL(url).hostname.split('.')[0]}-auth-token`).then(raw => {
+      if (cancelled || authoritative || !raw) return;
+      const saved = JSON.parse(raw) as Session;
+      if (saved?.user?.id && typeof saved.access_token === 'string' && typeof saved.refresh_token === 'string') {
+        setSession(saved); setReady(true);
+      }
+    }).catch(() => {}) : Promise.resolve();
+    supabase.auth.getSession().then(async ({ data, error }) => {
+      await cached;
       if (cancelled) return;
-      setSession(data.session);
+      if (!error) { authoritative = true; setSession(data.session); }
       setReady(true);
-    });
+    }).catch(async () => { await cached; if (!cancelled) setReady(true); });
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'INITIAL_SESSION' && !s) return;
+      authoritative = true;
       setSession(s);
+      setReady(true);
       if (event === "PASSWORD_RECOVERY") setRecovering(true);
     });
     return () => {

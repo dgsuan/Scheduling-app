@@ -37,11 +37,11 @@ try {
       if (url.hostname !== host) return request.respond({ status: 200, body: '{}', contentType: 'application/json' });
       const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'content-type': 'application/json' };
       if (request.method() === 'OPTIONS') return request.respond({ status: 200, headers, body: '' });
-      if (offline && url.pathname.includes('/rpc/')) return request.abort('internetdisconnected');
+      if (offline) return request.abort('internetdisconnected');
       const reply = (data, status = 200) => request.respond({ status, headers, body: JSON.stringify(data) });
       const token = request.headers().authorization?.split(' ')[1];
       let owner; try { owner = JSON.parse(Buffer.from(token.split('.')[1], 'base64url')).sub; } catch {}
-      if (url.pathname.includes('/auth/')) return reply({ user: session(owner ?? id).user });
+      if (url.pathname.includes('/auth/')) return reply(url.pathname.includes('/token') ? session(owner ?? id) : { user: session(owner ?? id).user });
       const body = request.postData() ? JSON.parse(request.postData()) : {};
       if (url.pathname.endsWith('/rpc/habit_sync_version')) return reply(capability);
       if (url.pathname.endsWith('/rpc/read_habit_items')) return reply([...(rows.get(owner)?.values() ?? [])]);
@@ -59,6 +59,7 @@ try {
     await page.evaluateOnNewDocument((session, tokenKey) => {
       // Block real Realtime websocket access; reconciliation is tested via RPC.
       window.WebSocket = class { static OPEN = 1; static CLOSED = 3; readyState = 0; close() {} send() {} addEventListener() {} removeEventListener() {} };
+      Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => sessionStorage.getItem('test-offline') !== 'yes' });
       if (!sessionStorage.getItem('seed')) {
         sessionStorage.setItem('seed', '1'); localStorage.setItem(tokenKey, JSON.stringify(session));
         localStorage.setItem('campus-schedule:courses:v1', '[]');
@@ -89,12 +90,17 @@ try {
   await click(second, 'Sync settings'); await click(second, 'Enable habit sync'); await click(second, 'Open account without guest habits'); await waitText(second, 'Habits synced'); await waitText(second, 'Private reading');
   assert.equal((await read(second)).logs.length, 1);
   offline = true;
+  await second.evaluate(() => { sessionStorage.setItem('test-offline', 'yes'); window.dispatchEvent(new Event('offline')); });
   await click(second, 'Undo check-in');
   await second.waitForFunction(k => JSON.parse(localStorage.getItem(k)).logs.length === 2, {}, key);
+  await second.evaluate(tokenKey => { const s = JSON.parse(localStorage.getItem(tokenKey)); s.expires_at = Math.floor(Date.now() / 1000) - 600; localStorage.setItem(tokenKey, JSON.stringify(s)); }, tokenKey);
   await second.reload(); await waitText(second, 'Private reading');
+  await waitText(second, 'Offline · Saved on this device');
   assert.equal((await read(second)).logs.length, 2, 'Pending correction survives reload');
   offline = false;
-  await click(second, 'Sync settings'); await click(second, 'Sync habits now'); await waitText(second, 'Habits synced');
+  await second.evaluate(() => { sessionStorage.removeItem('test-offline'); window.dispatchEvent(new Event('online')); });
+  await waitText(second, 'Habits synced');
+  await click(second, 'Sync settings');
   await click(first, 'Sync habits now'); await waitText(first, 'Habits synced');
   assert.equal((await read(first)).logs.length, 2);
   offline = true;

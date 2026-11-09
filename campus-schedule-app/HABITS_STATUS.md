@@ -1,5 +1,12 @@
 # Habit integration — first local release
 
+## 9 November offline access and automatic reconnect
+
+- Habit records and pending changes remain in the existing durable local profile. Browser online events now trigger immediate reconciliation; foreground activation and periodic retries remain fallbacks. Offline status explains that local changes will sync on reconnect, and transport failures are no longer mislabeled as a missing migration.
+- Auth restores the SDK's saved device session for local access without waiting for network token refresh. Explicit auth changes still replace/clear that identity, and another account's habits remain hidden. Cloud RPCs still require valid server credentials.
+- Service-worker installation now caches the entry HTML's JS/CSS dependencies before completing, including the initial visit whose scripts loaded before worker control. Open the deployed app online once and allow caching before using it offline. Clearing browser storage removes local records/cache. Reconnection sync runs while the app is open; no closed-app background-sync guarantee is made.
+- Passed TypeScript, web export, pure sync tests, real browser offline reload/create/persistence checks, and mocked cloud tests covering expired-token offline startup, automatic reconnect upload, conflicts and account isolation. No hosted database or deployment changes were made.
+
 ## 8 November UX and quality-of-life additions (local)
 
 See `HABIT_GROWTH_SETUP.md` for current behavior, limitations and backend setup. Added Today/Library/Insights, progressive creation, functional templates, compact cloud controls, management inside Details, quantity shortcuts, undo-last, routine labels/cues, optional reflections/moods, period reports, activity calendar, CSV and derived milestones. These supersede the corresponding pending items below.
