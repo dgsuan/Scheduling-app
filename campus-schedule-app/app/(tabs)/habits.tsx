@@ -1,6 +1,7 @@
+import { HabitReveal, HabitRevealContext } from "@/components/habits/HabitReveal";
 import { HabitCloudControls } from "@/components/habits/HabitCloud";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollView, View, Pressable } from "react-native";
 import { CalendarDays, Bell, Timer, SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react-native";
 import { Icon } from "@/components/ui/icon";
@@ -16,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useHabits, useSettings } from "@/context/store";
 import { addDaysIso } from "@/lib/dates";
-import { currentZone, habitDate, habitId, habitOccurrences, habitProgress, habitStats, validateHabitData, withHabitGoal, type Habit, type HabitSchedule, type HabitType } from "@/lib/habits";
+import { currentZone, habitDate, habitId, habitOccurrences, habitProgress, habitStats, validateHabitData, withHabitAnytime, withHabitGoal, type Habit, type HabitSchedule, type HabitType } from "@/lib/habits";
 import { useNow } from "@/lib/useNow";
 
 function Choices<T extends string>({ values, value, onChange }: { values: T[]; value: T; onChange: (v: T) => void }) {
@@ -26,7 +27,7 @@ function Choices<T extends string>({ values, value, onChange }: { values: T[]; v
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (s: string) => void; placeholder?: string }) {
   return <View className="gap-1"><Text className="text-sm font-medium">{label}</Text><Input accessibilityLabel={label} value={value} onChangeText={onChange} placeholder={placeholder} /></View>;
 }
-function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
+function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: (id?: string) => void }) {
   const { changeHabits } = useHabits();
   const { settings } = useSettings();
   const old = habit?.schedules.at(-1);
@@ -66,7 +67,8 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
   const scheduleChanged = !old || (Object.keys(schedule) as (keyof HabitSchedule)[]).some(key => !["id", "from", "target", "unit"].includes(key) && JSON.stringify(schedule[key]) !== JSON.stringify(old[key]));
   const draft: Habit = { ...habit, id: recordId, title: title.trim(), type, category, notes, routine: routine.trim(), cue: cue.trim(), createdAt, schedules: scheduleChanged ? [...(habit?.schedules ?? []), schedule] : habit!.schedules, reminder,
     ...(type === "duration" ? { pomodoroEnabled, focusMinutes: Number(focusMinutes), breakMinutes: Number(breakMinutes) } : {}), reminderEveryMinutes: reminderEvery ? Number(reminderEvery) : undefined, reminderStart, reminderEnd };
-  const next = habit ? withHabitGoal(draft, schedule.target, schedule.unit) : draft;
+  const updatedGoal = habit ? withHabitGoal(draft, schedule.target, schedule.unit) : draft;
+  const next = habit && slots === "00:00" ? withHabitAnytime(updatedGoal) : updatedGoal;
   const valid = validateHabitData({ version: 1, habits: [next], logs: [] });
   const save = async () => {
     if (!valid) { setError("Check the name, dates, timezone, target, weekdays, and times (HH:MM, separated by commas)."); return; }
@@ -74,9 +76,9 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
     setSaving(true);
     const saved = await changeHabits(d => ({ ...d, habits: d.habits.some(h => h.id === recordId) ? d.habits.map(h => h.id === recordId ? next : h) : [...d.habits, next] }));
     setSaving(false);
-    if (saved) onClose(); else setError("Your changes are waiting to save. Use Retry saving before continuing.");
+    if (saved) onClose(recordId); else setError("Your changes are waiting to save. Use Retry saving before continuing.");
   };
-  return <View className="bg-card border-border mb-6 w-full max-w-3xl self-center gap-5 rounded-2xl border p-4 sm:p-6">
+  return <HabitReveal className="bg-card border-border mb-6 w-full max-w-3xl self-center gap-5 rounded-2xl border p-4 sm:p-6">
     <Text className="text-xl font-semibold">{habit ? "Edit habit" : "Create a habit"}</Text>
     {!habit && <View className="flex-row flex-wrap gap-2">{[
       { title: "Study", type: "duration" as HabitType, target: "120", unit: "minutes", category: "Learning" },
@@ -87,7 +89,7 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
     <Text className="text-muted-foreground text-sm">{frequency === "daily" ? "Every day" : frequency === "weekly" ? `${quota} days per week` : "Custom schedule"} · {type === "binary" ? "One-tap check-in" : `${target} ${type === "duration" ? "minutes" : unit}`} · {slots === "00:00" ? "Any time" : slots}</Text>
     {type === "duration" && <Field label="Daily study / focus goal (minutes)" value={target} onChange={setTarget} />}
     <Button variant="outline" className="self-start" accessibilityState={{ expanded: advanced }} onPress={() => setAdvanced(!advanced)}><Icon as={SlidersHorizontal} size={16} /><Text>{advanced ? "Hide options" : "Customize habit"}</Text><Icon as={advanced ? ChevronUp : ChevronDown} size={16} /></Button>
-    {advanced && <View className="gap-4">
+    {advanced && <HabitReveal className="gap-4">
     <View className="flex-row flex-wrap gap-2">{[
       { id: "tracking", label: "Tracking", icon: Timer },
       { id: "schedule", label: "Schedule", icon: CalendarDays },
@@ -109,7 +111,7 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
     {frequency === "interval" && <Field label="Repeat every N days" value={interval} onChange={setInterval} />}
     {frequency === "weekly" ? <><Field label="Sessions per week (1–7)" value={quota} onChange={setQuota} /><Text className="text-muted-foreground text-sm">Monday–Sunday. At most one qualifying session per day.</Text></> : <View className="gap-3"><Text className="text-sm font-medium">When?</Text><View className="flex-row flex-wrap gap-2"><Button size="sm" variant={slots === "00:00" ? "default" : "outline"} onPress={() => setSlots("00:00")}><Text>Any time</Text></Button><Button size="sm" variant={slots !== "00:00" ? "default" : "outline"} onPress={() => { if (slots === "00:00") setSlots("09:00"); }}><Text>Set times</Text></Button></View>{slots !== "00:00" && <><View className="flex-row flex-wrap gap-2">{slots.split(",").map((slot, i) => <View key={i} className="flex-row items-center gap-1"><TimePickerField value={slot.trim()} accessibilityLabel={`Habit time ${i + 1}`} onChange={value => { const times = slots.split(",").map(s => s.trim()); if (value) times[i] = value; else times.splice(i, 1); setSlots(times.join(", ") || "00:00"); }} /></View>)}</View><Button size="sm" className="self-start" variant="ghost" disabled={slots.split(",").length >= 24} onPress={() => { const times = slots.split(",").map(s => s.trim()); const available = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, "0")}:00`).find(t => !times.includes(t)); if (available) setSlots([...times, available].join(", ")); }}><Text>+ Add another time</Text></Button></>}</View>}
     <View className="border-border border-t pt-3"><Button variant="ghost" className="h-auto min-h-11 justify-between" accessibilityState={{ expanded: datesOpen }} onPress={() => setDatesOpen(!datesOpen)}><Text>Dates & timezone</Text><Icon as={datesOpen ? ChevronUp : ChevronDown} size={16} /></Button><Text className="text-muted-foreground px-3 text-xs">{from} · {until ? `Until ${until}` : "No end date"} · {zone}</Text></View>
-    {datesOpen && <View className="gap-4"><View className="flex-row flex-wrap gap-4"><View className="min-w-48 flex-1 gap-2"><Text className="text-sm font-medium">{habit ? "Apply schedule from" : "Start date"}</Text><DatePickerField value={from} onChange={v => v && setFrom(v)} accessibilityLabel="Habit start date" /></View><View className="min-w-48 flex-1 gap-2"><Text className="text-sm font-medium">End date</Text><DatePickerField value={until || undefined} onChange={v => setUntil(v ?? "")} placeholder="No end date" accessibilityLabel="Habit end date" /></View></View><Field label="Timezone" value={zone} onChange={setZone} /></View>}
+    {datesOpen && <HabitReveal className="gap-4"><View className="flex-row flex-wrap gap-4"><View className="min-w-48 flex-1 gap-2"><Text className="text-sm font-medium">{habit ? "Apply schedule from" : "Start date"}</Text><DatePickerField value={from} onChange={v => v && setFrom(v)} accessibilityLabel="Habit start date" /></View><View className="min-w-48 flex-1 gap-2"><Text className="text-sm font-medium">End date</Text><DatePickerField value={until || undefined} onChange={v => setUntil(v ?? "")} placeholder="No end date" accessibilityLabel="Habit end date" /></View></View><Field label="Timezone" value={zone} onChange={setZone} /></HabitReveal>}
     </View>}
     {option === "schedule" && datesOpen && !!until && <Button className="self-start" variant="ghost" size="sm" onPress={() => setUntil("")}><Text>Remove end date</Text></Button>}
     {option === "details" && <View className="gap-4"><View className="gap-1"><Text className="font-semibold">Make it yours</Text><Text className="text-muted-foreground text-sm">All optional. Add only what helps you.</Text></View>
@@ -124,16 +126,27 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: () => void })
     {reminder && !settings.reminders.enabled && <View className="gap-2"><Text className="text-sm">App reminders are currently off. Enable them in Settings for this reminder to run.</Text><Button variant="outline" className="self-start" onPress={() => router.push("/settings")}><Text>Open reminder settings</Text></Button></View>}
     </View>}
     </View>
-    </View>}
-    {habit && <Text className="text-muted-foreground text-sm">Your goal and unit update today when saved. Logged progress is kept.{scheduleChanged ? ` Schedule changes start ${from}.` : " Timer settings apply to the next block."}</Text>}
+    </HabitReveal>}
+    {habit && <Text className="text-muted-foreground text-sm">Your goal and unit update today when saved. Logged progress is kept.{slots === "00:00" ? " Any time opens today’s check-ins immediately." : ""}{scheduleChanged ? ` Schedule changes start ${from}.` : " Timer settings apply to the next block."}</Text>}
     {error && <Text className="text-destructive">{error}</Text>}
-    <View className="border-border flex-row items-center gap-2 border-t pt-4"><Button className="min-w-32" disabled={saving || !title.trim()} onPress={() => void save()}><Text>{saving ? "Saving…" : "Save habit"}</Text></Button><Button disabled={saving} variant="ghost" onPress={onClose}><Text>Cancel</Text></Button></View>
-  </View>;
+    <View className="border-border flex-row items-center gap-2 border-t pt-4"><Button className="min-w-32" disabled={saving || !title.trim()} onPress={() => void save()}><Text>{saving ? "Saving…" : "Save habit"}</Text></Button><Button disabled={saving} variant="ghost" onPress={() => onClose()}><Text>Cancel</Text></Button></View>
+  </HabitReveal>;
 }
 export default function HabitsScreen() {
   const { data, ready, changeHabits, habitError, retryHabits } = useHabits();
   const params = useLocalSearchParams<{ habitId?: string; date?: string }>();
   const now = useNow();
+  const scroll = useRef<ScrollView>(null);
+  const viewport = useRef<View>(null);
+  const scrollY = useRef(0);
+  const cards = useRef(new Map<string, View>());
+  const reveal = (target: View) => {
+    const container = scroll.current;
+    if (!container) return;
+    viewport.current?.measureInWindow((_x, top) => {
+      target.measureInWindow((_left, y) => container.scrollTo({ y: Math.max(0, scrollY.current + y - top - 16), animated: false }));
+    });
+  };
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("active");
   const [view, setView] = useState(params.habitId ? "library" : "today");
@@ -161,12 +174,16 @@ export default function HabitsScreen() {
     // Preserve today and all past versions. Changes start tomorrow without backfilling gaps.
     changeHabits(d => ({ ...d, habits: d.habits.map(x => x.id === h.id ? { ...x, schedules: [...x.schedules.filter(s => s.from < date), { ...last, id: habitId(), from: date, state }] } : x) }));
   };
-  return <ScrollView className="bg-background flex-1" contentContainerStyle={{ padding: 24, paddingBottom: 100, maxWidth: 1000, width: "100%", alignSelf: "center" }} keyboardShouldPersistTaps="handled">
+  return <HabitRevealContext.Provider value={reveal}><View ref={viewport} style={{ flex: 1 }}><ScrollView ref={scroll} onScroll={event => { scrollY.current = event.nativeEvent.contentOffset.y; }} scrollEventThrottle={16} className="bg-background flex-1" contentContainerStyle={{ padding: 24, paddingBottom: 100, maxWidth: 1000, width: "100%", alignSelf: "center" }} keyboardShouldPersistTaps="handled">
     <ScreenHeader title="Habits" eyebrow="Small steps, steady momentum" subtitle="Build a rhythm that fits around your day." right={<Button disabled={!ready || !!habitError} onPress={() => setEditor("new")}><Text>New habit</Text></Button>} />
     <HabitCloudControls />
     {habitError && <View className="mb-4 gap-2"><Text className="text-destructive">{habitError}</Text><Button onPress={retryHabits}><Text>Retry saving</Text></Button></View>}
     {!ready ? <Text>Loading habits…</Text> : <>
-      {editor && <HabitEditor key={editor === "new" ? "new" : editor.id} habit={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} />}
+      {editor && <HabitEditor key={editor === "new" ? "new" : editor.id} habit={editor === "new" ? undefined : editor} onClose={id => {
+        const targetId = id ?? (editor !== "new" ? editor.id : undefined);
+        setEditor(null);
+        requestAnimationFrame(() => { const target = targetId && cards.current.get(targetId); if (target) reveal(target); });
+      }} />}
       <View className="mb-5 gap-3"><Choices values={["today", "library", "insights"]} value={view} onChange={v => { setView(v); setSearch(""); }} />
       {view === "today" && <Text className="text-muted-foreground">{todayItems.length ? completed === todayItems.length ? "You're all caught up. Enjoy the rest of your day." : `${completed} of ${todayItems.length} goals complete · One small step at a time.` : "No habits due today. Enjoy a little breathing room."}</Text>}
       {view === "library" && <><Input accessibilityLabel="Search habits" placeholder="Search habits or categories" value={search} onChangeText={setSearch} /><Choices values={["active", "paused", "archived", "all"]} value={filter} onChange={setFilter} /><Choices values={["created", "name", "category"]} value={sort} onChange={setSort} /></>}
@@ -179,12 +196,12 @@ export default function HabitsScreen() {
         const today = habitDate(h.schedules.at(-1)!.timezone, now.getTime());
         const occurrences = habitOccurrences(h, today, today);
         const stats = detail === h.id ? habitStats(h, data.logs, now.getTime()) : null;
-        return <View key={h.id} className="bg-card border-border mb-4 gap-3 rounded-xl border p-5">
+        return <View key={h.id} ref={node => { if (node) cards.current.set(h.id, node); else cards.current.delete(h.id); }} className="bg-card border-border mb-4 gap-3 rounded-xl border p-5">
           <View className="flex-row flex-wrap items-center justify-between gap-2"><View className="flex-1"><Text className="text-lg font-semibold">{h.title}</Text><Text className="text-muted-foreground text-sm">{h.category}{state(h) !== "active" ? ` · ${state(h)}` : ""}</Text></View><Button variant="ghost" size="sm" accessibilityLabel={`Details for ${h.title}`} accessibilityState={{ expanded: detail === h.id }} onPress={() => setDetail(detail === h.id ? null : h.id)}><Text>{detail === h.id ? "Close" : "Details"}</Text></Button></View>
           {occurrences.map(o => <View key={o.key} className="gap-2"><Text className="text-muted-foreground text-xs">{o.schedule.frequency === "weekly" ? "Weekly goal" : o.slot === "00:00" ? "Any time today" : o.slot}</Text><HabitCheckIn habit={h} occurrence={o} /></View>)}
           {!!h.cue && <Text className="text-muted-foreground text-sm">After I {h.cue}</Text>}
           {!occurrences.length && <Text className="text-muted-foreground text-sm">No check-in scheduled today.</Text>}
-          {detail === h.id && stats && <View className="border-border gap-3 border-t pt-4">
+          {detail === h.id && stats && <HabitReveal className="border-border gap-3 border-t pt-4">
             <View className="flex-row flex-wrap gap-2"><Button size="sm" variant="outline" onPress={() => setEditor(h)}><Text>Edit</Text></Button><Button size="sm" variant="outline" onPress={() => transition(h, state(h) === "active" ? "paused" : "active")}><Text>{state(h) === "active" ? "Pause tomorrow" : "Resume tomorrow"}</Text></Button>{state(h) !== "archived" && <Button size="sm" variant="ghost" onPress={() => transition(h, "archived")}><Text>Archive tomorrow</Text></Button>}<Button size="sm" variant="ghost" onPress={() => setRemove(h)}><Text>Delete</Text></Button></View>
             <Text className="font-semibold">Momentum: {stats.score === null ? "Not enough history" : `${Math.round(stats.score)} / 100`}</Text>
             <Text className="text-muted-foreground text-sm">{stats.count} closed opportunities{stats.count < 7 ? " · early estimate" : ""}. Weighted progress over the latest 7, 30 and 90 opportunities (40%, 40%, 20%). Open periods and pauses are excluded.</Text>
@@ -197,11 +214,11 @@ export default function HabitsScreen() {
             })}</View>
             <Field label="Review / correct date" value={historyDate} onChange={setHistoryDate} />
             {/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(historyDate) && Number.isFinite(Date.parse(historyDate)) && habitOccurrences(h, historyDate, historyDate).map(o => <HabitCheckIn key={o.key} habit={h} occurrence={o} effectiveDate={historyDate} />)}
-            <Text className="text-muted-foreground text-xs">Undo retracts entries while keeping an audit trail. Schedule changes apply to future opportunities.</Text>
-          </View>}
+            <Text className="text-muted-foreground text-xs">Undo retracts entries while keeping an audit trail. Any time unlocks today; other schedule changes apply to future opportunities.</Text>
+          </HabitReveal>}
         </View>;
       })}
     </>}
     <ConfirmDialog open={!!remove} onOpenChange={open => !open && setRemove(null)} title="Delete habit and history?" description="This deletes the habit and its check-ins, including synced copies when cloud sync is enabled. Archive instead to keep your history, or export a backup first." onConfirm={() => { changeHabits(d => ({ ...d, habits: d.habits.filter(h => h.id !== remove?.id), logs: d.logs.filter(l => l.habitId !== remove?.id) })); setRemove(null); }} />
-  </ScrollView>;
+  </ScrollView></View></HabitRevealContext.Provider>;
 }

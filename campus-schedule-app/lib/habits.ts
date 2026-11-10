@@ -8,7 +8,7 @@ export type HabitSchedule = {
   slots: string[]; target: number; unit: string;
   state: "active" | "paused" | "archived";
 };
-export type Habit = { id: string; title: string; type: HabitType; category: string; notes: string; createdAt: number; schedules: HabitSchedule[]; reminder: boolean; routine?: string; cue?: string; pomodoroEnabled?: boolean; focusMinutes?: number; breakMinutes?: number; reminderEveryMinutes?: number; reminderSnoozedUntil?: number; reminderStart?: string; reminderEnd?: string; goals?: { from: string; target: number; unit: string }[] };
+export type Habit = { id: string; title: string; type: HabitType; category: string; notes: string; createdAt: number; schedules: HabitSchedule[]; reminder: boolean; routine?: string; cue?: string; pomodoroEnabled?: boolean; focusMinutes?: number; breakMinutes?: number; reminderEveryMinutes?: number; reminderSnoozedUntil?: number; reminderStart?: string; reminderEnd?: string; goals?: { from: string; target: number; unit: string }[]; anytimeFrom?: Record<string, string> };
 export type HabitLog = { id: string; habitId: string; occurrenceKey: string; date: string; at: number; amount: number; confirmed: boolean; retracts?: string; sourceId?: string; reflection?: string; mood?: "low" | "okay" | "good" };
 export type HabitData = { version: 1; habits: Habit[]; logs: HabitLog[]; cloud?: { ownerId: string; base: Record<string, { data: Habit | HabitLog; updated_at: string }> } };
 export const emptyHabits = (): HabitData => ({ version: 1, habits: [], logs: [] });
@@ -61,8 +61,13 @@ export function habitOccurrences(habit: Habit, from: string, to: string): HabitO
       // A goal edit updates the current daily/weekly period without replacing
       // its occurrence key or rewriting the immutable schedule used by logs.
       const goal = habit.goals?.filter(g => g.from < end).at(-1);
-      result.push({ key, habitId: habit.id, date: start, endDate: end, slot, schedule: goal ? { ...s, target: goal.target, unit: goal.unit } : s,
-        startAt: habitTime(start, slot, s.timezone), endAt: habitTime(end, "00:00", s.timezone) });
+      const latest = habit.schedules.at(-1)!;
+      // Also unlock edits saved by older versions which queued Any time for tomorrow.
+      const pendingAnytime = latest.from === addDaysIso(date, 1) && latest.state === "active" && latest.slots.length === 1 && latest.slots[0] === "00:00" && date === habitDate(s.timezone);
+      const anytime = (habit.anytimeFrom?.[s.id] !== undefined && date >= habit.anytimeFrom[s.id]) || pendingAnytime;
+      const availableSlot = anytime ? "00:00" : slot;
+      result.push({ key, habitId: habit.id, date: start, endDate: end, slot: availableSlot, schedule: goal ? { ...s, target: goal.target, unit: goal.unit } : s,
+        startAt: habitTime(start, availableSlot, s.timezone), endAt: habitTime(end, "00:00", s.timezone) });
     }
   }
   return result;
@@ -70,6 +75,13 @@ export function habitOccurrences(habit: Habit, from: string, to: string): HabitO
 export function withHabitGoal(habit: Habit, target: number, unit: string, now = Date.now()): Habit {
   const from = habitDate(habit.schedules.at(-1)!.timezone, now);
   return { ...habit, goals: [...(habit.goals ?? []).filter(g => g.from < from), { from, target, unit }] };
+}
+/** Unlock today's existing opportunities without changing keys referenced by logs or timers. */
+export function withHabitAnytime(habit: Habit, now = Date.now()): Habit {
+  const schedule = habit.schedules.filter(s => s.from <= habitDate(s.timezone, now)).at(-1);
+  if (!schedule) return habit;
+  const from = habitDate(schedule.timezone, now);
+  return { ...habit, anytimeFrom: { ...habit.anytimeFrom, [schedule.id]: habit.anytimeFrom?.[schedule.id] ?? from } };
 }
 export function activeHabitLogs(logs: HabitLog[]): HabitLog[] {
   const unique = [...new Map(logs.map(l => [l.id, l])).values()];
@@ -113,6 +125,7 @@ export function validateHabitData(value: unknown): value is HabitData {
     for (const h of d.habits) {
       if (!h || typeof h.id !== "string" || !h.id || h.id.length > 40 || ids.has(h.id) || typeof h.title !== "string" || !h.title.trim() || !["binary", "quantity", "duration", "avoid"].includes(h.type) || typeof h.category !== "string" || typeof h.notes !== "string" || !Number.isFinite(h.createdAt) || typeof h.reminder !== "boolean" || !Array.isArray(h.schedules) || !h.schedules.length) return false;
       ids.add(h.id);
+      if (h.anytimeFrom !== undefined && (!h.anytimeFrom || typeof h.anytimeFrom !== "object" || Array.isArray(h.anytimeFrom) || Object.entries(h.anytimeFrom).some(([id, from]) => !h.schedules.some(s => s.id === id) || !validDate(from)))) return false;
       if (h.goals !== undefined) {
         if (!Array.isArray(h.goals)) return false;
         let previousGoal = "";

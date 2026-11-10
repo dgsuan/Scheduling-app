@@ -1,5 +1,11 @@
 # Habit integration — first local release
 
+## 10 November Any time and navigation fixes
+
+- Saving Any time unlocks today's existing opportunities immediately, retaining occurrence IDs, logs and active timer references. Dated unlock metadata syncs with the habit without rewriting used schedules. Older Any time edits queued for tomorrow also unlock today. Other recurrence changes remain future-dated; multiple existing daily slots retain their separate progress until the replacement schedule starts.
+- Edit/New habit, Customize, dates, details, manual amount entry and reflections scroll their newly opened content into view. Saving/cancelling returns to the habit card. No extra controls were added.
+- Regression coverage includes immediate unlock, past-history preservation, reload, existing queued edits, timer start and manual logging, and desktop/mobile scrolling. Native device interaction has not been tested.
+
 ## 9 November offline access and automatic reconnect
 
 - Habit records and pending changes remain in the existing durable local profile. Browser online events now trigger immediate reconciliation; foreground activation and periodic retries remain fallbacks. Offline status explains that local changes will sync on reconnect, and transport failures are no longer mislabeled as a missing migration.

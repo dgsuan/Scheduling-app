@@ -26,6 +26,8 @@ try {
   const click = async label => {
     await page.waitForFunction(s => [...document.querySelectorAll('button,[role="button"]')].some(e => e.textContent.trim() === s), {}, label);
     await page.evaluate(s => [...document.querySelectorAll('button,[role="button"]')].find(e => e.textContent.trim() === s).click(), label);
+    // Let newly opened sections finish their layout and reveal before the next pointer action.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   };
   const read = () => page.evaluate(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1") || "null"));
   await go("/habits");

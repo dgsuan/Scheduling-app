@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { activeHabitLogs, habitOccurrences, habitProgress, habitStats, habitTime, validateHabitData, withHabitGoal, type Habit, type HabitLog } from "../lib/habits.ts";
+import { activeHabitLogs, habitOccurrences, habitProgress, habitStats, habitTime, validateHabitData, withHabitGoal, withHabitAnytime, type Habit, type HabitLog } from "../lib/habits.ts";
 import { dueReminders } from "../lib/reminders.ts";
 import { DEFAULT_RULES } from "../lib/schedule.ts";
 import { agendaForDate } from "../lib/calendar.ts";
@@ -104,3 +104,21 @@ assert.equal(dueReminders({ ...options, now: new Date(daily[0].startAt + 11 * 60
 assert.equal(sliceToItems("habits", data).length, 0, "local-only habits must never be uploaded");
 assert.equal(agendaForDate("2026-11-01", 0, { courses: [], tasks: [], notes: [], events: [], holidays: [], habits: data }).filter(i => i.kind === "habit").length, 1);
 console.log("Habit recurrence, progress, history, DST, undo, validation, reminders, calendar and local-only tests passed");
+
+const timedStudy: Habit = { ...water, type: 'duration', schedules: [{ ...water.schedules[0], slots: ['17:00'], target: 10800, unit: 'minutes' }] };
+const unlocked = withHabitAnytime(timedStudy, Date.parse('2026-11-08T09:00:00+08:00'));
+const beforeUnlock = habitOccurrences(timedStudy, '2026-11-08', '2026-11-08')[0];
+const afterUnlock = habitOccurrences(unlocked, '2026-11-08', '2026-11-08')[0];
+assert.equal(afterUnlock.key, beforeUnlock.key);
+assert.equal(afterUnlock.slot, '00:00');
+assert.equal(afterUnlock.startAt, habitTime('2026-11-08', '00:00', 'Asia/Manila'));
+assert.equal(habitOccurrences(unlocked, '2026-11-07', '2026-11-07')[0].slot, '17:00');
+assert.deepEqual(unlocked.schedules, timedStudy.schedules, 'used schedules remain immutable');
+assert.equal(validateHabitData({ version: 1, habits: [unlocked], logs: [] }), true);
+assert.equal(validateHabitData({ version: 1, habits: [{ ...unlocked, anytimeFrom: { missing: '2026-11-08' } }], logs: [] }), false);
+assert.equal(validateHabitData({ version: 1, habits: [{ ...unlocked, anytimeFrom: { water1: 'invalid' } }], logs: [] }), false);
+const restoredUnlock = JSON.parse(JSON.stringify(unlocked));
+assert.equal(habitOccurrences(restoredUnlock, '2026-11-08', '2026-11-08')[0].startAt, afterUnlock.startAt);
+assert.equal(habitProgress(unlocked, afterUnlock, [{ ...waterLog, occurrenceKey: beforeUnlock.key, amount: 600 }]).amount, 600);
+const rescheduled = { ...unlocked, schedules: [...unlocked.schedules, { ...unlocked.schedules[0], id: 'newtime', from: '2026-11-09', slots: ['18:00'] }] };
+assert.equal(habitOccurrences(rescheduled, '2026-11-09', '2026-11-09')[0].slot, '18:00', 'new schedule supersedes prior unlock');

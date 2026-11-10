@@ -1,3 +1,4 @@
+import { HabitReveal } from "./HabitReveal";
 import { elapsedMs, formatClock, useFocus } from "@/context/focus";
 import { useEffect, useState } from "react";
 import { View } from "react-native";
@@ -55,7 +56,7 @@ export function HabitCheckIn({ habit, occurrence, effectiveDate }: { habit: Habi
         {habit.type === "avoid" && <Button size="sm" disabled={disabled || logs.some(l => l.confirmed)} onPress={() => add(0, true)}><Text>{logs.some(l => l.confirmed) ? "Observation saved" : "Confirm observation"}</Text></Button>}
         <Button variant="ghost" size="sm" accessibilityState={{ expanded: custom }} onPress={() => setCustom(!custom)}><Text>{custom ? "Close" : habit.type === "duration" ? "Log minutes" : "Enter amount"}</Text></Button>
         {!!logs.length && <Button variant="ghost" size="sm" disabled={disabled} onPress={undoLast}><Text>Undo last</Text></Button>}
-        {custom && <View className="w-full flex-row flex-wrap items-center gap-2"><Input className="w-28" accessibilityLabel={`Amount for ${habit.title}`} placeholder={habit.type === "duration" ? "Minutes" : "Amount"} keyboardType="decimal-pad" value={amount} onChangeText={setAmount} /><Button size="sm" disabled={disabled || !amount.trim()} onPress={() => add(Number(amount) * (habit.type === "duration" ? 60 : 1))}><Text>Add</Text></Button></View>}
+        {custom && <HabitReveal className="w-full flex-row flex-wrap items-center gap-2"><Input className="w-28" accessibilityLabel={`Amount for ${habit.title}`} placeholder={habit.type === "duration" ? "Minutes" : "Amount"} keyboardType="decimal-pad" value={amount} onChangeText={setAmount} /><Button size="sm" disabled={disabled || !amount.trim()} onPress={() => add(Number(amount) * (habit.type === "duration" ? 60 : 1))}><Text>Add</Text></Button></HabitReveal>}
       </>}
     </View>
     {error ? <Text className="text-destructive text-sm">{error}</Text> : null}
