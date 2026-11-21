@@ -164,6 +164,28 @@ try {
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('campus-schedule:habits:v1')).habits.some(h => h.title === 'Offline habit'));
   await page.reload(); await page.waitForFunction(() => document.body.innerText.includes('Offline habit'));
   await page.setOfflineMode(false);
+  await click('Filter habits');
+  await page.type("[aria-label=\"Search today's habits\"]", 'Offline habit');
+  await page.waitForFunction(() => !document.querySelector('[aria-label="Details for Study"]'));
+  await click('Check in'); await click('Hide completed habits');
+  await page.waitForFunction(() => !document.querySelector('[aria-label="Details for Offline habit"]'));
+  await click('Show completed habits');
+  await page.waitForSelector('[aria-label="Details for Offline habit"]');
+  await page.waitForSelector('[aria-label="Recent progress for Offline habit"]');
+  await page.screenshot({ path: path.join(OUT, 'habit-progress-mobile.png'), fullPage: true });
+  await click('Insights');
+  await page.waitForFunction(() => document.body.innerText.includes('Your weekly recap'));
+  await page.evaluate(() => {
+    const key = 'campus-schedule:habits:v1'; const data = JSON.parse(localStorage.getItem(key));
+    data.habits = data.habits.map((h, i) => ({ ...h, routine: i === 0 ? 'Morning' : 'Evening' }));
+    localStorage.setItem(key, JSON.stringify(data));
+  });
+  await page.reload(); await click('Today'); await click('Filter habits'); await click('Morning');
+  await page.waitForSelector('[aria-label="Details for Read ten pages"]');
+  assert.equal(await page.$('[aria-label="Details for Study"]'), null, 'Today supports routine filtering');
+  await click('All routines'); await page.waitForSelector('[aria-label="Details for Study"]');
+
+
   assert.deepEqual(errors, []);
   console.log("PASS habit creation, check-in/undo, reload, history, mobile layout, pause/resume, focus recovery, storage retry and Calendar filter");
 } finally { await browser?.close(); server.close(); }

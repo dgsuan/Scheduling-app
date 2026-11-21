@@ -46,3 +46,33 @@ export function habitMilestones(data: HabitData) {
       { title: "Growing steadily", earned: days >= 30, description: "Show up on 30 different days." },
     ] };
 }
+
+/** Seven calendar days, using each habit's timezone and existing recurrence rules. */
+export function habitWeek(habit: HabitData["habits"][number], logs: HabitData["logs"], now: number) {
+  const today = habitDate(habit.schedules.at(-1)!.timezone, now);
+  return Array.from({ length: 7 }, (_, i) => {
+    const date = addDaysIso(today, i - 6);
+    const occurrences = habitOccurrences(habit, date, date);
+    const progress = occurrences.map(o => habitProgress(habit, o, logs, now));
+    const ratio = progress.length ? progress.reduce((sum, p) => sum + p.ratio, 0) / progress.length : null;
+    return { date, ratio, weekly: occurrences.some(o => o.schedule.frequency === "weekly") };
+  });
+}
+
+/** Last seven complete local days versus the seven before them; weekly goals count once. */
+export function habitWeeklyRecap(data: HabitData, now: number) {
+  const periods = [0, 7].map(offset => {
+    let completed = 0, total = 0;
+    for (const habit of data.habits) {
+      const today = habitDate(habit.schedules.at(-1)!.timezone, now);
+      const end = addDaysIso(today, -offset);
+      const start = addDaysIso(end, -7);
+      const opportunities = habitOccurrences(habit, addDaysIso(start, -6), addDaysIso(end, -1))
+        .filter(o => o.endDate > start && o.endDate <= end && o.endAt <= now);
+      total += opportunities.length;
+      completed += opportunities.filter(o => habitProgress(habit, o, data.logs, now).ratio === 1).length;
+    }
+    return { completed, total, rate: total ? Math.round(completed / total * 100) : null };
+  });
+  return { current: periods[0], previous: periods[1] };
+}

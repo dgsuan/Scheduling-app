@@ -5,7 +5,7 @@ import { Text } from "@/components/ui/text";
 import { addDaysIso } from "@/lib/dates";
 import { canDownloadFiles, downloadText } from "@/lib/download";
 import { activeHabitLogs, currentZone, habitDate, type HabitData } from "@/lib/habits";
-import { habitCsv, habitMilestones, habitReport } from "@/lib/habitReports";
+import { habitCsv, habitMilestones, habitReport, habitWeeklyRecap } from "@/lib/habitReports";
 import { HabitGrowth } from "@/components/habits/HabitGrowth";
 
 export function HabitInsights({ data, now }: { data: HabitData; now: number }) {
@@ -13,12 +13,19 @@ export function HabitInsights({ data, now }: { data: HabitData; now: number }) {
   const [growth, setGrowth] = useState(false);
   const [message, setMessage] = useState("");
   const reports = useMemo(() => habitReport(data, days, now), [data, days, now]);
+  const recap = useMemo(() => habitWeeklyRecap(data, now), [data, now]);
   const milestones = useMemo(() => habitMilestones(data), [data]);
   const activeDays = new Set(activeHabitLogs(data.logs).filter(l => l.amount > 0 || l.confirmed).map(l => l.date));
   const today = habitDate(currentZone(), now);
   const total = reports.reduce((sum, r) => sum + r.opportunities, 0);
   const done = reports.reduce((sum, r) => sum + r.completed, 0);
   return <View className="gap-4">
+    <View className="bg-card border-border gap-2 rounded-xl border p-5">
+      <Text className="text-lg font-semibold">Your weekly recap</Text>
+      <Text>{recap.current.total ? `${recap.current.completed} of ${recap.current.total} goals completed` : "Your first week is taking shape"}</Text>
+      <Text className="text-muted-foreground text-sm">Last 7 complete days, in each habit's timezone. Weekly goals count once when their week ends.</Text>
+      {recap.current.rate !== null && recap.previous.rate !== null && <Text className="text-muted-foreground text-sm">{recap.current.rate}% completed · {recap.previous.rate}% the week before. Every small step counts.</Text>}
+    </View>
     <View className="flex-row flex-wrap gap-2">{[7, 30, 365].map(value => <Button key={value} size="sm" variant={days === value ? "default" : "outline"} onPress={() => setDays(value)}><Text>{value === 7 ? "Week" : value === 30 ? "Month" : "Year"}</Text></Button>)}</View>
     <View className="bg-card border-border gap-3 rounded-xl border p-5">
       <Text className="text-xl font-semibold">{total ? `${Math.round(done / total * 100)}% of closed goals completed` : "Your story starts here"}</Text>

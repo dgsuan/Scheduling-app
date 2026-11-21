@@ -1,5 +1,15 @@
 # Habit integration — first local release
 
+## 21 November GRIT-inspired everyday improvements
+
+Researched https://www.gritapp.net/ and https://apps.apple.com/us/app/grit-daily-habit-tracker/id6446997766. Selected recent-progress visibility, quick filtering, habit grouping and weekly recap to complement existing timers, reminders, sync and milestones.
+
+- Each habit card now has seven days of accessible progress bars, including partial progress and rest-day labels. Weekly progress is explicitly labeled as shared across its week.
+- Today has one expandable Filter habits control with search, hide/show completed, and routine selection. Routine filters also work with more than five routines; completion totals remain unfiltered.
+- Insights starts with the last seven complete local days compared with the preceding seven. Weekly opportunities count once when they close. Existing local storage and cloud records supply all data; no migration or dependency is needed.
+- Verified TypeScript, habit calculation tests, web export, and the expanded habit browser suite (including search, hide/show completed, routine filtering, recap, offline reload, timers and mobile layout). Inspected the mobile progress screenshot.
+- Native widgets, Apple Health, Siri, app blocking, checklist habit types and timer auto-stop at goal are outside this addition. These are not claimed as implemented. No deployment performed.
+
 ## 10 November Any time and navigation fixes
 
 - Saving Any time unlocks today's existing opportunities immediately, retaining occurrence IDs, logs and active timer references. Dated unlock metadata syncs with the habit without rewriting used schedules. Older Any time edits queued for tomorrow also unlock today. Other recurrence changes remain future-dated; multiple existing daily slots retain their separate progress until the replacement schedule starts.

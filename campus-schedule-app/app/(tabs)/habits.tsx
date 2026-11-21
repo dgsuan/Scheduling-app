@@ -1,3 +1,4 @@
+import { HabitWeek } from "@/components/habits/HabitWeek";
 import { HabitReveal, HabitRevealContext } from "@/components/habits/HabitReveal";
 import { HabitCloudControls } from "@/components/habits/HabitCloud";
 import { router, useLocalSearchParams } from "expo-router";
@@ -147,6 +148,8 @@ export default function HabitsScreen() {
       target.measureInWindow((_left, y) => container.scrollTo({ y: Math.max(0, scrollY.current + y - top - 16), animated: false }));
     });
   };
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [hideCompleted, setHideCompleted] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("active");
   const [view, setView] = useState(params.habitId ? "library" : "today");
@@ -158,7 +161,7 @@ export default function HabitsScreen() {
   const [historyDate, setHistoryDate] = useState(params.date ?? habitDate(currentZone()));
   useEffect(() => {
     if (!params.habitId) return;
-    setDetail(params.habitId); setView("library"); setFilter("all"); setRoutineFilter("All routines"); setSearch("");
+    setHideCompleted(false); setDetail(params.habitId); setView("library"); setFilter("all"); setRoutineFilter("All routines"); setSearch("");
     if (params.date) setHistoryDate(params.date);
   }, [params.habitId, params.date]);
   const state = (h: Habit) => h.schedules.at(-1)?.state ?? "active";
@@ -166,7 +169,7 @@ export default function HabitsScreen() {
   const todayItems = data.habits.flatMap(h => due(h).map(o => ({ h, o })));
   const completed = todayItems.filter(({ h, o }) => habitProgress(h, o, data.logs, now.getTime()).ratio === 1).length;
   const routines = [...new Set(data.habits.map(h => h.routine).filter((r): r is string => !!r))];
-  const visible = data.habits.filter(h => (view === "today" ? due(h).length > 0 : filter === "all" || state(h) === filter) && (view === "today" || routines.length > 5 || !routines.includes(routineFilter) || h.routine === routineFilter) && `${h.title} ${h.category} ${h.routine ?? ""}`.toLowerCase().includes(search.toLowerCase()))
+  const visible = data.habits.filter(h => (view === "today" ? due(h).length > 0 : filter === "all" || state(h) === filter) && (!routines.includes(routineFilter) || h.routine === routineFilter) && (view !== "today" || !hideCompleted || due(h).some(o => habitProgress(h, o, data.logs, now.getTime()).ratio < 1)) && `${h.title} ${h.category} ${h.routine ?? ""}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => sort === "name" ? a.title.localeCompare(b.title) : sort === "category" ? a.category.localeCompare(b.category) || a.title.localeCompare(b.title) : a.createdAt - b.createdAt);
   const transition = (h: Habit, state: HabitSchedule["state"]) => {
     const last = h.schedules.at(-1)!;
@@ -186,12 +189,14 @@ export default function HabitsScreen() {
       }} />}
       <View className="mb-5 gap-3"><Choices values={["today", "library", "insights"]} value={view} onChange={v => { setView(v); setSearch(""); }} />
       {view === "today" && <Text className="text-muted-foreground">{todayItems.length ? completed === todayItems.length ? "You're all caught up. Enjoy the rest of your day." : `${completed} of ${todayItems.length} goals complete · One small step at a time.` : "No habits due today. Enjoy a little breathing room."}</Text>}
+      {view === "today" && <><Button variant="ghost" size="sm" className="self-start" accessibilityState={{ expanded: filtersOpen }} onPress={() => setFiltersOpen(!filtersOpen)}><Text>{filtersOpen ? "Close filters" : `Filter habits${hideCompleted || search || routines.includes(routineFilter) ? " · Active" : ""}`}</Text></Button>{filtersOpen && <HabitReveal className="gap-3"><Input accessibilityLabel="Search today's habits" placeholder="Find a habit or routine" value={search} onChangeText={setSearch} /><Button variant="outline" className="self-start" accessibilityState={{ checked: hideCompleted }} onPress={() => setHideCompleted(!hideCompleted)}><Text>{hideCompleted ? "Show completed habits" : "Hide completed habits"}</Text></Button></HabitReveal>}</>}
       {view === "library" && <><Input accessibilityLabel="Search habits" placeholder="Search habits or categories" value={search} onChangeText={setSearch} /><Choices values={["active", "paused", "archived", "all"]} value={filter} onChange={setFilter} /><Choices values={["created", "name", "category"]} value={sort} onChange={setSort} /></>}
-      {view === "library" && routines.length > 0 && routines.length <= 5 && <Choices values={["All routines", ...routines]} value={routineFilter} onChange={setRoutineFilter} />}
+      {(view === "library" || (view === "today" && filtersOpen)) && routines.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false}><Choices values={["All routines", ...routines]} value={routineFilter} onChange={setRoutineFilter} /></ScrollView>}
       </View>
       {view === "insights" && <HabitInsights data={data} now={now.getTime()} />}
       {!data.habits.length && <View className="bg-card border-border gap-3 rounded-xl border p-6"><Text className="text-xl font-semibold">Start small. Make it yours.</Text><Text>Choose a habit you can repeat on an ordinary day. Rest and restarting are part of the process.</Text><Button className="self-start" onPress={() => setEditor("new")}><Text>Create your first habit</Text></Button></View>}
       {view !== "insights" && !!data.habits.length && !visible.length && view === "library" && <Text className="text-muted-foreground">No habits match this view. Try another filter or search.</Text>}
+      {view === "today" && !!data.habits.length && !visible.length && todayItems.length > 0 && <Text className="text-muted-foreground">{hideCompleted && completed === todayItems.length ? "All done for today. Show completed habits in filters to review or undo." : "No habits match your filters. Try another routine or search."}</Text>}
       {view !== "insights" && visible.map(h => {
         const today = habitDate(h.schedules.at(-1)!.timezone, now.getTime());
         const occurrences = habitOccurrences(h, today, today);
@@ -199,6 +204,7 @@ export default function HabitsScreen() {
         return <View key={h.id} ref={node => { if (node) cards.current.set(h.id, node); else cards.current.delete(h.id); }} className="bg-card border-border mb-4 gap-3 rounded-xl border p-5">
           <View className="flex-row flex-wrap items-center justify-between gap-2"><View className="flex-1"><Text className="text-lg font-semibold">{h.title}</Text><Text className="text-muted-foreground text-sm">{h.category}{state(h) !== "active" ? ` · ${state(h)}` : ""}</Text></View><Button variant="ghost" size="sm" accessibilityLabel={`Details for ${h.title}`} accessibilityState={{ expanded: detail === h.id }} onPress={() => setDetail(detail === h.id ? null : h.id)}><Text>{detail === h.id ? "Close" : "Details"}</Text></Button></View>
           {occurrences.map(o => <View key={o.key} className="gap-2"><Text className="text-muted-foreground text-xs">{o.schedule.frequency === "weekly" ? "Weekly goal" : o.slot === "00:00" ? "Any time today" : o.slot}</Text><HabitCheckIn habit={h} occurrence={o} /></View>)}
+          <HabitWeek habit={h} logs={data.logs} now={now.getTime()} />
           {!!h.cue && <Text className="text-muted-foreground text-sm">After I {h.cue}</Text>}
           {!occurrences.length && <Text className="text-muted-foreground text-sm">No check-in scheduled today.</Text>}
           {detail === h.id && stats && <HabitReveal className="border-border gap-3 border-t pt-4">

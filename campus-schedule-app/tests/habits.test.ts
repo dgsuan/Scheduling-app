@@ -4,7 +4,7 @@ import { dueReminders } from "../lib/reminders.ts";
 import { DEFAULT_RULES } from "../lib/schedule.ts";
 import { agendaForDate } from "../lib/calendar.ts";
 import { sliceToItems } from "../lib/syncItems.ts";
-import { habitCsv, habitMilestones, habitReport } from '../lib/habitReports.ts';
+import { habitCsv, habitMilestones, habitReport, habitWeek, habitWeeklyRecap } from '../lib/habitReports.ts';
 
 const water: Habit = { id: 'water', title: '=Water', category: 'Personal', notes: 'Private note', createdAt: 1, type: 'quantity', reminder: true, reminderEveryMinutes: 120, reminderStart: '09:00', reminderEnd: '21:00', schedules: [{ id: 'water1', from: '2026-11-01', timezone: 'Asia/Manila', frequency: 'daily', weekdays: [1], interval: 1, quota: 3, weekStart: 1, slots: ['00:00'], target: 8, unit: 'glasses', state: 'active' }] };
 const waterOccurrence = habitOccurrences(water, '2026-11-08', '2026-11-08')[0];
@@ -122,3 +122,17 @@ assert.equal(habitOccurrences(restoredUnlock, '2026-11-08', '2026-11-08')[0].sta
 assert.equal(habitProgress(unlocked, afterUnlock, [{ ...waterLog, occurrenceKey: beforeUnlock.key, amount: 600 }]).amount, 600);
 const rescheduled = { ...unlocked, schedules: [...unlocked.schedules, { ...unlocked.schedules[0], id: 'newtime', from: '2026-11-09', slots: ['18:00'] }] };
 assert.equal(habitOccurrences(rescheduled, '2026-11-09', '2026-11-09')[0].slot, '18:00', 'new schedule supersedes prior unlock');
+
+const recapNow = Date.parse('2026-11-09T10:00:00+08:00');
+const recap = habitWeeklyRecap({ version: 1, habits: [water], logs: [{ ...waterLog, amount: 8 }] }, recapNow);
+assert.equal(recap.current.total, 7);
+assert.equal(recap.current.completed, 1);
+assert.equal(recap.previous.total, 1);
+const weekStrip = habitWeek(water, [{ ...waterLog, amount: 4 }], recapNow);
+assert.equal(weekStrip.length, 7);
+assert.equal(weekStrip.find(d => d.date === '2026-11-08')?.ratio, 0.5);
+const weeklyRecap = habitWeeklyRecap({ version: 1, habits: [weeklyWater], logs: [] }, recapNow);
+assert.equal(weeklyRecap.current.total, 1, 'weekly quota is not counted once per day');
+const pausedStrip = habitWeek({ ...water, schedules: [{ ...water.schedules[0], state: 'paused' }] }, [], recapNow);
+assert.ok(pausedStrip.every(d => d.ratio === null), 'rest days are distinct from zero progress');
+assert.equal(habitWeeklyRecap({ version: 1, habits: [], logs: [] }, recapNow).current.rate, null);
