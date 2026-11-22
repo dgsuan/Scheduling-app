@@ -127,7 +127,7 @@ export function FocusProvider({ children }: { children: React.ReactNode }) {
   const startHabit = useCallback((id: string, key: string, date: string, minutes?: number) => {
     const h = data.habits.find(h => h.id === id);
     const o = h && habitOccurrences(h, date, date).find(o => o.key === key);
-    if (!h || h.type !== "duration" || !o || Date.now() < o.startAt || Date.now() >= o.endAt) return;
+    if (!h || h.type !== "duration" || !o || date !== habitDate(o.schedule.timezone) || Date.now() >= o.endAt) return;
     if (sessionRef.current?.habit?.key === key) return;
     const localDate = habitDate(o.schedule.timezone);
     void switchTo({ taskId: "", id: habitId(), habit: { id, key, date: localDate, owner: data.cloud?.ownerId }, phase: "focus", breakMinutes: h.breakMinutes ?? 10, startedAt: Date.now(), accumulatedMs: 0,
@@ -159,7 +159,8 @@ export function FocusProvider({ children }: { children: React.ReactNode }) {
     const h = data.habits.find(h => h.id === s.habit!.id);
     if (!h) return;
     const date = habitDate(h.schedules.at(-1)!.timezone);
-    const o = habitOccurrences(h, date, date).find(o => o.startAt <= Date.now() && o.endAt > Date.now());
+    const opportunities = habitOccurrences(h, date, date).filter(o => o.endAt > Date.now());
+    const o = opportunities.find(o => o.key === s.habit!.key) ?? opportunities[0];
     if (!o) { toast({ message: "No focus session scheduled right now.", description: "Your previous focus time is kept. You can stop this timer." }); return; }
     void switchTo({ taskId: "", id: habitId(), habit: { id: h.id, key: o.key, date, owner: data.cloud?.ownerId }, phase: "focus", breakMinutes: h.breakMinutes ?? 10,
       accumulatedMs: 0, startedAt: Date.now(), endAt: Math.min(o.endAt, habitTime(addDaysIso(date, 1), "00:00", o.schedule.timezone)),

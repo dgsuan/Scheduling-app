@@ -26,13 +26,14 @@ try {
   const click = async label => {
     await page.waitForFunction(s => [...document.querySelectorAll('button,[role="button"]')].some(e => e.textContent.trim() === s), {}, label);
     await page.evaluate(s => [...document.querySelectorAll('button,[role="button"]')].find(e => e.textContent.trim() === s).click(), label);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   };
   const read = () => page.evaluate(() => JSON.parse(localStorage.getItem("campus-schedule:habits:v1") || "null"));
 
   await page.evaluateOnNewDocument(() => {
     const RealDate = Date;
     const start = RealDate.now();
-    const fixed = RealDate.parse('2026-11-10T09:00:00+08:00');
+    const fixed = RealDate.parse(sessionStorage.getItem('late-test') ? '2026-11-10T20:00:00+08:00' : '2026-11-10T09:00:00+08:00');
     class Clock extends RealDate {
       constructor(...args) { super(...(args.length ? args : [fixed + RealDate.now() - start])); }
       static now() { return fixed + RealDate.now() - start; }
@@ -48,7 +49,14 @@ try {
   });
   await page.reload();
   await page.waitForSelector('[aria-label="Details for Study"]');
-  assert.ok(await page.evaluate(() => [...document.querySelectorAll('button')].find(e => e.textContent === 'Start studying')?.disabled), 'scheduled timer starts locked');
+  assert.ok(await page.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent === 'Start studying' && !e.disabled)), '17:00 timer can start at 09:00');
+  await click('Start studying');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('campus-schedule-cache:focus'))?.habit?.key === 'study:studys:2026-11-10:17:00');
+  await click('Take a break'); await click('Continue');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('campus-schedule-cache:focus'))?.phase === 'focus');
+  await click('Finish & save');
+  await click('Check in');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('campus-schedule:habits:v1')).logs.some(l => l.habitId === 'filler0' && l.amount === 1));
   await page.click('[aria-label="Details for Study"]');
   await click('Edit');
   const visible = async selector => page.waitForFunction(sel => {
@@ -86,6 +94,18 @@ try {
   await visible('[aria-label="Habit start date"]');
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 390));
   await page.screenshot({ path: path.join(OUT, 'habit-anytime-edit-mobile.png'), fullPage: false });
+  await page.evaluate(() => {
+    sessionStorage.setItem('late-test', 'yes');
+    const key = 'campus-schedule:habits:v1'; const d = JSON.parse(localStorage.getItem(key));
+    const h = d.habits.find(h => h.id === 'study'); h.schedules = h.schedules.slice(0, 1); delete h.anytimeFrom;
+    localStorage.setItem(key, JSON.stringify(d));
+  });
+  await page.reload(); await page.waitForSelector('[aria-label="Details for Study"]');
+  await click('Start studying');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('campus-schedule-cache:focus'))?.habit?.key === 'study:studys:2026-11-10:17:00');
+  await click('Finish & save');
+  await click('Log minutes'); await page.type('[aria-label="Amount for Study"]', '7'); await click('Add');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('campus-schedule:habits:v1')).logs.some(l => l.amount === 420));
   assert.deepEqual(errors, []);
   console.log('PASS immediate Any time, existing queued edits, retained progress, timer, manual logging, reload and desktop/mobile reveal');
 } finally { await browser?.close(); server.close(); }

@@ -1,5 +1,11 @@
 # Habit integration — first local release
 
+## 22 November flexible check-ins
+
+- Planned times no longer lock same-day check-ins, manual amounts, reflections or study timers. Reminders still use the planned time; future-day check-ins and timers for past dates remain blocked. Past days can still be corrected manually.
+- Continuing a break retains the selected occurrence when a habit has multiple daily times. Daily timer limits and midnight boundaries remain unchanged.
+- No SQL or data migration required.
+
 ## 21 November GRIT-inspired everyday improvements
 
 Researched https://www.gritapp.net/ and https://apps.apple.com/us/app/grit-daily-habit-tracker/id6446997766. Selected recent-progress visibility, quick filtering, habit grouping and weekly recap to complement existing timers, reminders, sync and milestones.

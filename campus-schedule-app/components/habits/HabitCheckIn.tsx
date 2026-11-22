@@ -30,7 +30,7 @@ export function HabitCheckIn({ habit, occurrence, effectiveDate }: { habit: Habi
   const doneToday = logs.some(l => l.amount > 0 || l.confirmed);
   const add = (value: number, confirmed = false) => {
     if (!Number.isFinite(value) || value < 0 || (!confirmed && value === 0)) { setError("Enter an amount greater than zero."); return; }
-    if (Date.now() < occurrence.startAt || date > today) return;
+    if (date < occurrence.date || date >= occurrence.endDate || date > today) return;
     changeHabits(d => ({ ...d, logs: [...d.logs, { id: habitId(), habitId: habit.id, occurrenceKey: occurrence.key, date, at: Date.now(), amount: value, confirmed }] }));
     setAmount(""); setError("");
   };
@@ -40,7 +40,7 @@ export function HabitCheckIn({ habit, occurrence, effectiveDate }: { habit: Habi
     if (!last) return;
     void changeHabits(d => ({ ...d, logs: [...d.logs, { id: habitId(), habitId: habit.id, occurrenceKey: occurrence.key, date, at: Date.now(), amount: 0, confirmed: false, retracts: last.id }] }));
   };
-  const disabled = Date.now() < occurrence.startAt || date > today || !!habitError;
+  const disabled = date < occurrence.date || date >= occurrence.endDate || date > today || !!habitError;
   return <View className="gap-2">
     <Text className="text-muted-foreground text-sm">{occurrence.schedule.frequency === "weekly" ? `${p.sessions} / ${occurrence.schedule.quota} days this week` : habit.type === "binary" ? (p.ratio === 1 ? "Done for today" : "Ready when you are") : `${habit.type === "duration" ? Math.floor((p.amount + activeSeconds) / 60) : p.amount} / ${habit.type === "duration" ? occurrence.schedule.target / 60 : occurrence.schedule.target} ${occurrence.schedule.unit}${p.ratio === 1 ? " · Goal reached" : ""}`}</Text>
     {session && <Text className="text-sm">{session.phase === "break" ? `Break · ${formatClock(session.limitMs ? Math.max(0, session.limitMs - elapsedMs(session)) : elapsedMs(session))}${session.limitMs ? " left" : ""}` : `${formatClock(elapsedMs(session))} this focus block${session.startedAt ? " · Studying" : " · Paused"}`}</Text>}
@@ -60,6 +60,6 @@ export function HabitCheckIn({ habit, occurrence, effectiveDate }: { habit: Habi
       </>}
     </View>
     {error ? <Text className="text-destructive text-sm">{error}</Text> : null}
-    {disabled && !habitError ? <Text className="text-muted-foreground text-xs">Check-in opens at {occurrence.slot} in {occurrence.schedule.timezone}.</Text> : null}
+    {disabled && !habitError ? <Text className="text-muted-foreground text-xs">Check-ins are available on the scheduled day.</Text> : null}
   </View>;
 }
