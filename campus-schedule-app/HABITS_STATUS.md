@@ -1,5 +1,22 @@
 # Habit integration — first local release
 
+## 23 November Android widgets and local reminders
+
+- Added a resizable Isked habits Android home-screen widget, offline progress cache, incomplete-first ordering, accessible labels and deep links to individual habits. Add from the system widget picker or Settings → Reminders → Add habit widget. Launcher taps open the app; they do not mutate progress headlessly.
+- Added expo-notifications local scheduling for habits, classes, tasks and timed focus/break endings. No Firebase setup is required. The next 64 reminders (up to seven days) are refreshed on data changes, foregrounding and while open. Android battery settings/force-stop can prevent or delay delivery; this is not an exact alarm guarantee.
+- Handles permission opt-in, quiet hours, snooze, completion, account changes, disabling reminders, notification-tap routing and deduplication. Widget snapshots omit notes/reflections and cloud sync metadata. Web/iOS have no widget imports through platform-specific entry points. Existing web push remains separate.
+- TypeScript, the full logic suite, Android Hermes export, web export, habit browser regression, and reminder/PWA settings browser checks passed. The settings browser check passed on retry after an initial page-load timeout. Native config inspection confirms the IskedHabits receiver is generated. Foreground class/task reminders use in-app alerts; native scheduled notifications handle closed-app delivery.
+- Signed APK version code 5 submitted as build `cdb319c9-badb-4ee1-b657-b912feaec1e3`; last observed status IN_QUEUE, with no artifact yet. A previous upload failed with ECONNRESET; a repository-root .easignore reduced the archive from 51 MB to 1.6 MB and the retry uploaded successfully. Native compilation and physical-device QA are not yet verified. See ANDROID_APK.md for the build link.
+
+## 22 November background web push and APK packaging
+
+- Added synced habits and logs to the existing reminders Edge Function, using the true instant for IANA-zone habit schedules. Shares scheduled/inactivity, completion, quiet-hours, snooze and pause rules with the client. Generic lock-screen copy avoids exposing habit names.
+- Paginated item reads prevent incomplete progress from a 1,000-row response cap. Failed reads do not send; a wholly failed delivery releases its claim for retry. Successful claims suppress repeats. Browser notifications avoid an extra client-side system notification for cloud-owned habits when this device has web push on.
+- Notification taps navigate to the habit, including from an already-open app window. Settings and habit editor explain that background reminders require synced habits and the device's background-reminder toggle.
+- Deployed the reminders function to the linked Supabase project; verified the existing every-minute cron job is active and recent HTTP responses are 200. Reused existing VAPID/cron secrets. No database migration or private key rotation. Actual delivery to a user's closed browser is not device-tested; the web UI/service-worker changes still need the normal website release.
+- Passed TypeScript, shared server reminder tests, handler/service-worker tests, web export, habit browser regression and settings browser regression. Server tests cover timezone offsets, due windows, progress/undo, inactivity, quiet hours, snooze, invalid data, privacy, pagination, deduplication and retry.
+- Configured Expo preview with the app's public Supabase URL/key and automatic Android version increments. Existing remote Android keystore reused. Signed APK version 1.0.0 / code 2 completed successfully (build 3d85fe2e-c190-4fe6-a497-d57ac9fa78bf). APK download and install guidance: ANDROID_APK.md. Native notifications remain separate from browser web push.
+
 ## 22 November flexible check-ins
 
 - Planned times no longer lock same-day check-ins, manual amounts, reflections or study timers. Reminders still use the planned time; future-day check-ins and timers for past dates remain blocked. Past days can still be corrected manually.

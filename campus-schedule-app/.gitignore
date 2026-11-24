@@ -46,3 +46,6 @@ supabase/.temp/
 # generated native folders
 /ios
 /android
+
+# Locally downloaded signed build artifacts
+releases/*.apk

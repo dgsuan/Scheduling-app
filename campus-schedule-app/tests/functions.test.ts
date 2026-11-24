@@ -98,3 +98,33 @@ test("calendar links can't reach private networks", () => {
 });
 
 console.log(`all ${passed} Edge Function test groups passed`);
+
+// Habit reminder schedules use true UTC instants and IANA zones, independently
+// of the browser offset used for class and task reminders.
+const habit = { id: 'water', title: 'Private water title', category: 'Health', notes: 'private', type: 'quantity', createdAt: 1, reminder: true,
+  schedules: [{ id: 's1', from: '2026-11-01', timezone: 'Asia/Manila', frequency: 'daily', weekdays: [1], interval: 1, quota: 3, weekStart: 1, slots: ['09:00'], target: 8, unit: 'glasses', state: 'active' }] };
+const settings = { collection: 'setting', id: 'settings', data: { reminders: { enabled: true } } };
+const habitRows = (h: any = habit, logs: any[] = []): ItemRow[] => [settings, { collection: 'habit', id: 'water', data: h }, ...logs.map(data => ({ collection: 'habit_log', id: data.id, data }))];
+const at = (time: string) => Date.parse(`2026-11-22T${time}:00+08:00`);
+const dueHabit = remindersForUser(habitRows(), at('09:01'), -300);
+assert.equal(dueHabit.length, 1);
+assert.equal(dueHabit[0].kind, 'habit');
+assert.equal(dueHabit[0].habitId, 'water');
+assert.ok(!JSON.stringify(dueHabit).includes('Private water title'));
+assert.deepEqual(remindersForUser(habitRows(), at('08:59'), 480), []);
+assert.deepEqual(remindersForUser(habitRows(), at('09:06'), 480), []);
+assert.deepEqual(remindersForUser(habitRows({ ...habit, reminder: false }), at('09:01'), 480), []);
+const log = { id: 'l1', habitId: 'water', occurrenceKey: 'water:s1:2026-11-22:09:00', date: '2026-11-22', at: at('08:00'), amount: 8, confirmed: false };
+assert.deepEqual(remindersForUser(habitRows(habit, [log]), at('09:01'), 480), []);
+const retract = { ...log, id: 'undo', amount: 0, retracts: 'l1' };
+assert.equal(remindersForUser(habitRows(habit, [log, retract]), at('09:01'), 480).length, 1);
+const intervalHabit = { ...habit, reminderEveryMinutes: 120, reminderStart: '09:00', reminderEnd: '21:00' };
+assert.equal(remindersForUser(habitRows(intervalHabit), at('11:01'), -300).length, 1);
+assert.deepEqual(remindersForUser(habitRows(intervalHabit, [{ ...log, amount: 1, at: at('10:00') }]), at('11:01'), 480), []);
+assert.deepEqual(remindersForUser(habitRows(intervalHabit), at('21:00'), 480), []);
+assert.deepEqual(remindersForUser(habitRows({ ...habit, reminderSnoozedUntil: at('09:15') }), at('09:01'), 480), []);
+assert.equal(remindersForUser(habitRows({ ...habit, reminderSnoozedUntil: at('09:15') }), at('09:15'), 480).length, 1);
+assert.deepEqual(remindersForUser(habitRows({ ...habit, schedules: [{ ...habit.schedules[0], state: 'paused' }] }), at('09:01'), 480), []);
+assert.deepEqual(remindersForUser(habitRows({ ...habit, schedules: [{ ...habit.schedules[0], timezone: 'invalid' }] }), at('09:01'), 480), []);
+assert.deepEqual(remindersForUser(habitRows().filter(r => r.collection !== 'setting'), at('09:01'), 480), []);
+console.log('PASS server habit reminders: timezone, grace, opt-out, progress/undo, inactivity, quiet hours, snooze and privacy');

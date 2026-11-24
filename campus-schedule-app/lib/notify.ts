@@ -14,3 +14,5 @@ export async function requestNotificationPermission(): Promise<NotifyPermission>
 export async function showSystemNotification(_title: string, _body: string, _tag: string, _path?: string): Promise<boolean> {
   return false;
 }
+
+export async function refreshNotificationPermission(): Promise<NotifyPermission> { return notificationPermission(); }

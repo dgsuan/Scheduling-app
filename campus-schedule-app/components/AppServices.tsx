@@ -1,3 +1,4 @@
+import { NativeCompanion } from "./NativeCompanion";
 import { HabitSyncEngine } from "@/components/habits/HabitCloud";
 import { useEffect } from "react";
 import { Platform } from "react-native";
@@ -31,6 +32,7 @@ export function AppServices() {
   return (
     <>
       <ReminderEngine />
+      <NativeCompanion />
       <SyncEngine />
       <HabitSyncEngine />
       <ActivityEngine />

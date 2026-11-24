@@ -49,3 +49,5 @@ export async function showSystemNotification(title: string, body: string, tag: s
     return false;
   }
 }
+
+export async function refreshNotificationPermission(): Promise<NotifyPermission> { return notificationPermission(); }

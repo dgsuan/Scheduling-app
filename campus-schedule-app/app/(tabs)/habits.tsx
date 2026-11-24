@@ -3,7 +3,7 @@ import { HabitReveal, HabitRevealContext } from "@/components/habits/HabitReveal
 import { HabitCloudControls } from "@/components/habits/HabitCloud";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, View, Pressable } from "react-native";
+import { ScrollView, View, Pressable, Platform } from "react-native";
 import { CalendarDays, Bell, Timer, SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react-native";
 import { Icon } from "@/components/ui/icon";
 import { DatePickerField } from "@/components/DatePickerField";
@@ -123,7 +123,7 @@ function HabitEditor({ habit, onClose }: { habit?: Habit; onClose: (id?: string)
     {option === "reminders" && <View className="gap-4"><View className="gap-1"><Text className="font-semibold">A gentle nudge</Text><Text className="text-muted-foreground text-sm">Choose when you'd like a reminder.</Text></View>
     <Button variant="outline" onPress={() => setReminder(!reminder)}><Text>{reminder ? "Reminders on" : "Reminders off"}</Text></Button>
     {reminder && <><View className="flex-row flex-wrap gap-2">{[{ label: "At scheduled times", value: "" }, { label: "After 1 hour", value: "60" }, { label: "After 2 hours", value: "120" }].map(preset => <Button key={preset.label} size="sm" variant={reminderEvery === preset.value ? "default" : "outline"} onPress={() => setReminderEvery(preset.value)}><Text>{preset.label}</Text></Button>)}</View><Field label="Remind after no check-in for (minutes, optional)" value={reminderEvery} onChange={setReminderEvery} placeholder="Or enter your own interval" />{!!reminderEvery && <View className="gap-2"><Text className="text-sm font-medium">Only remind me between</Text><View className="flex-row flex-wrap items-center gap-3"><TimePickerField value={reminderStart} onChange={v => v && setReminderStart(v)} accessibilityLabel="Reminder hours start" /><Text className="text-muted-foreground">and</Text><TimePickerField value={reminderEnd} onChange={v => v && setReminderEnd(v)} accessibilityLabel="Reminder hours end" /></View></View>}<Text className="text-muted-foreground text-xs">Resets after a check-in and stops when your goal is reached. Leave the interval empty to use scheduled times.</Text></>}
-    <Text className="text-muted-foreground text-xs">Reminders use your notification settings and work while the app is open.</Text>
+    <Text className="text-muted-foreground text-xs">{Platform.OS === "android" ? "Enable Remind me in Settings and allow Android notifications. Reminders work with the app closed, even offline. Open Isked regularly to refresh upcoming reminders." : "For reminders with the app closed, enable habit sync and Background reminders in Settings. Unsynced changes take effect after reconnecting."}</Text>
     {reminder && !settings.reminders.enabled && <View className="gap-2"><Text className="text-sm">App reminders are currently off. Enable them in Settings for this reminder to run.</Text><Button variant="outline" className="self-start" onPress={() => router.push("/settings")}><Text>Open reminder settings</Text></Button></View>}
     </View>}
     </View>

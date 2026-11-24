@@ -40,6 +40,25 @@
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to add images to the notes canvas."
         }
+      ],
+      "expo-notifications",
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "IskedHabits",
+              "label": "Isked habits",
+              "description": "Today’s habits and progress. Tap a habit to check in.",
+              "minWidth": "250dp",
+              "minHeight": "180dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 3,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            }
+          ]
+        }
       ]
     ],
     "experiments": {

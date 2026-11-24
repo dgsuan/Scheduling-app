@@ -2,6 +2,7 @@
 // (copied into ./app by scripts/prepare-functions.mjs). Unit-tested in Node:
 // tests/functions.test.ts.
 
+import { validateHabitData, type Habit, type HabitLog } from "./app/habits.ts";
 import { parseIcs, planImport } from "./app/ics.ts";
 import { mergeImported } from "./app/icsMerge.ts";
 import { dueReminders, type Reminder } from "./app/reminders.ts";
@@ -29,7 +30,7 @@ export function remindersForUser(rows: ItemRow[], nowMs: number, tzOffsetMin: nu
   const settings = (settingsRow?.data ?? null) as Partial<PlannerSettings> | null;
   if (!settings?.reminders?.enabled) return [];
   const wallClock = new Date(nowMs + tzOffsetMin * 60_000);
-  return dueReminders({
+  const ordinary = dueReminders({
     now: wallClock,
     courses: pick<Course>(rows, "course"),
     tasks: pick<Task>(rows, "task"),
@@ -43,6 +44,14 @@ export function remindersForUser(rows: ItemRow[], nowMs: number, tzOffsetMin: nu
     taskLeadMin: settings.reminders.taskLeadMin ?? 60,
     graceMs: SERVER_REMINDER_GRACE_MS,
   });
+  const habits = { version: 1 as const, habits: pick<Habit>(rows, "habit"), logs: pick<HabitLog>(rows, "habit_log") };
+  // Habit schedules carry IANA timezones. Use the actual instant, never the
+  // offset-shifted clock used by older class/task scheduling.
+  if (!validateHabitData(habits)) return ordinary;
+  return [...ordinary, ...dueReminders({ now: new Date(nowMs), habits,
+    courses: [], tasks: [], rules: { skipRegularHolidays: true, skipSpecialHolidays: true, cancellations: [] }, classLeadMin: 0, taskLeadMin: 0,
+    graceMs: SERVER_REMINDER_GRACE_MS,
+  })];
 }
 
 /** Short, stable id from a calendar entry's key (cyrb53). */

@@ -1,4 +1,4 @@
-// Edge Function: send due class and task reminders as web push
+// Edge Function: send due class, task and habit reminders as web push
 // notifications, so they arrive even when the app is closed.
 // Called every minute by pg_cron (supabase/setup/schedule_jobs.sql) with the
 // shared x-cron-secret header; anything else gets 403.
@@ -34,13 +34,20 @@ Deno.serve(async (req) => {
   let sent = 0;
   let removed = 0;
   for (const [userId, devices] of byUser) {
-    const { data: rows } = await db
-      .from("items")
-      .select("collection,id,data")
-      .eq("user_id", userId)
-      .eq("deleted", false)
-      .in("collection", ["course", "task", "cancellation", "setting"])
-      .limit(20000);
+    // Supabase caps a response at 1,000 rows. Fetch all pages so completed
+    // habits never look incomplete just because their logs were truncated.
+    const rows: ItemRow[] = [];
+    let readFailed = false;
+    for (let offset = 0; offset < 20000; offset += 1000) {
+      const { data: page, error: readError } = await db.from("items")
+        .select("collection,id,data").eq("user_id", userId).eq("deleted", false)
+        .in("collection", ["course", "task", "cancellation", "setting", "habit", "habit_log"])
+        .order("collection").order("id").range(offset, offset + 999);
+      if (readError || !page) { readFailed = true; break; }
+      rows.push(...page as ItemRow[]);
+      if (page.length < 1000) break;
+    }
+    if (readFailed) continue;
     const due = remindersForUser((rows ?? []) as ItemRow[], Date.now(), devices[0].tz_offset_min);
 
     for (const reminder of due) {
@@ -55,13 +62,15 @@ Deno.serve(async (req) => {
         title: reminder.title,
         body: reminder.body,
         tag: reminder.id,
-        path: reminder.kind === "task" ? "tasks" : "",
+        path: reminder.kind === "habit" ? `habits?habitId=${encodeURIComponent(reminder.habitId!)}` : reminder.kind === "task" ? "tasks" : "",
       });
+      let delivered = 0;
       await Promise.all(
         devices.map(async (device) => {
           try {
             await webpush.sendNotification({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, payload, { TTL: 600 });
             sent++;
+            delivered++;
           } catch (e) {
             const status = (e as { statusCode?: number }).statusCode;
             // The browser unsubscribed or the subscription expired.
@@ -72,6 +81,9 @@ Deno.serve(async (req) => {
           }
         })
       );
+      // Release failed claims for a retry during the due window. Successful
+      // deliveries retain the claim, preventing duplicates on the next tick.
+      if (!delivered) await db.from("sent_reminders").delete().eq("user_id", userId).eq("reminder_id", reminder.id.slice(0, 200));
     }
   }
 

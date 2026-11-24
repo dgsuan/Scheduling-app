@@ -108,7 +108,7 @@ self.addEventListener("push", (event) => {
       body: text(data.body, 240),
       tag: text(data.tag, 200) || undefined,
       icon: new URL("icons/icon-192.png", SCOPE).href,
-      data: { path: text(data.path, 40) },
+      data: { path: text(data.path, 200) },
     })
   );
 });
@@ -117,11 +117,11 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const raw = (event.notification.data && event.notification.data.path) || "";
   // Only simple in-app paths (e.g. "tasks"); never a full URL.
-  const path = /^[a-z0-9/?=&-]*$/i.test(raw) ? raw : "";
+  const path = /^(?:tasks|habits(?:\?habitId=[a-z0-9%_-]+)?)?$/i.test(raw) ? raw : "";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       const open = clients.find((c) => c.url.startsWith(SCOPE.href));
-      if (open) return open.focus();
+      if (open) return open.navigate(SCOPE.href + path).then(client => client ? client.focus() : self.clients.openWindow(SCOPE.href + path));
       return self.clients.openWindow(SCOPE.href + path);
     })
   );

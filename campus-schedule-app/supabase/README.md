@@ -115,3 +115,17 @@ Free projects pause after a week without activity. The
 `Keep Supabase awake` GitHub Action calls `ping()` every ~3 days. GitHub
 disables scheduled workflows after 60 days without commits — re-enable it in
 the Actions tab if that happens.
+
+### Habit notifications with the app closed
+
+The reminders function also reads synced `habit` and `habit_log` rows. Enable app reminders in Settings, enable habit sync in Habits, enable reminders for the habit, and turn on **Remind me when the app is closed** on each device. On iPhone, use the installed Home Screen web app. The Android APK uses on-device scheduled notifications instead of this web-push subscription; see `../ANDROID_APK.md` for setup and scheduling limits.
+
+Scheduled times and inactivity intervals share the app's rules, including IANA timezones, quiet hours for interval reminders, snooze, pause/archive, and completed goals. Notification text is generic to avoid revealing habit names on the lock screen. Tapping opens the habit. The scheduler uses a five-minute catch-up window and push messages expire after ten minutes. This is not an exact alarm.
+
+Only uploaded changes affect server notifications: offline check-ins, edits and snoozes may not suppress notifications until sync finishes. Disabling the device's background-reminder switch unsubscribes that device. Closing the app or disabling local sync does not delete previously uploaded habits. Use the habit's Reminders off setting and sync it to stop its server reminders across devices.
+
+For an existing deployment with push keys and cron already configured, update only the reminder function:
+`npm run functions:prepare`
+`npx supabase functions deploy reminders --no-verify-jwt`
+
+No new migration is required if 0004 and habit migrations 0007–0009 are already applied. Avoid regenerating VAPID keys for an existing installation: that would invalidate current subscriptions. Keep private keys in Supabase secrets. Publish the web update to get the new settings copy and improved notification-tap routing.

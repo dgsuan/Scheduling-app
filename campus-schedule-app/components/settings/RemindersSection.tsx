@@ -1,6 +1,7 @@
+import { AndroidWidgetRow } from "./AndroidWidgetRow";
 import { BellRing, TriangleAlert } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { AppState, View } from "react-native";
+import { AppState, Platform, View } from "react-native";
 
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { SettingsRow, SettingsSection, SettingsToggleRow } from "@/components/settings/SettingsSection";
@@ -14,6 +15,7 @@ import { disablePush, enablePush, pushActiveHere, pushSupport } from "@/lib/push
 import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   notificationPermission,
+  refreshNotificationPermission,
   requestNotificationPermission,
   showSystemNotification,
   type NotifyPermission,
@@ -25,8 +27,9 @@ const TASK_LEADS = [15, 30, 60, 180, 1440];
 
 function usePermission() {
   const [permission, setPermission] = useState<NotifyPermission>(notificationPermission);
-  const refresh = useCallback(() => setPermission(notificationPermission()), []);
+  const refresh = useCallback(() => { void refreshNotificationPermission().then(setPermission); }, []);
   useEffect(() => {
+    refresh();
     const sub = AppState.addEventListener("change", (s) => s === "active" && refresh());
     return () => sub.remove();
   }, [refresh]);
@@ -40,7 +43,7 @@ function BackgroundReminders() {
   const [active, setActive] = useState(pushActiveHere);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!isSupabaseConfigured) return null;
+  if (Platform.OS !== "web" || !isSupabaseConfigured) return null;
   const support = pushSupport();
 
   const hint = !user
@@ -50,8 +53,8 @@ function BackgroundReminders() {
       : support === "unsupported"
         ? "This browser can't get notifications while the app is closed. On iPhone, add the app to your Home Screen first."
         : active
-          ? "On for this device. Reminders come from your synced courses and tasks, so changes made on any device count."
-          : "Uses your synced courses and tasks, so reminders arrive even when every tab is closed.";
+          ? "On for this device. Reminders come from your synced courses, tasks and habits, Enable habit sync in Habits for habit reminders."
+          : "Uses your synced courses, tasks and habits, so reminders arrive even when every tab is closed. Habits must have habit sync enabled.";
 
   const toggle = async () => {
     setBusy(true);
@@ -109,20 +112,21 @@ export function RemindersSection() {
       : permission === "denied"
         ? {
             tone: "warn" as const,
-            text: "Notifications are blocked for this site, so reminders will appear inside the app instead. To get system notifications, allow them in your browser's site settings, then check again.",
+            text: Platform.OS === "android" ? "Notifications are blocked. Allow notifications for Isked in Android Settings, then check again." : "Notifications are blocked for this site, so reminders will appear inside the app instead. To get system notifications, allow them in your browser's site settings, then check again.",
           }
         : permission === "unsupported"
           ? { tone: "warn" as const, text: "System notifications aren't available here, so reminders will appear inside the app." }
-          : { tone: "warn" as const, text: "Allow notifications to get reminders even while you're in another tab." };
+          : { tone: "warn" as const, text: Platform.OS === "android" ? "Allow notifications to receive reminders with Isked closed." : "Allow notifications to get reminders even while you're in another tab." };
 
   return (
     <SettingsSection
       title="Reminders"
-      description="Heads-ups before classes and deadlines. Cancelled classes, holidays and days outside the term are skipped."
+      description="Gentle reminders for habits, classes and deadlines. Cancelled classes, holidays and days outside the term are skipped."
     >
+      <AndroidWidgetRow />
       <SettingsToggleRow
         label="Remind me"
-        hint="Works while this app is open (in a tab or installed window). Without a server, a closed app can't be notified."
+        hint={Platform.OS === "android" ? "Works with the app closed, even offline. Keeps the next 64 reminders ready, up to 7 days ahead. Open Isked regularly to refresh. Android battery settings may delay delivery." : "Works while this app is open (in a tab or installed window). Enable background reminders below for delivery with the app closed."}
         checked={r.enabled}
         onChange={toggle}
       />

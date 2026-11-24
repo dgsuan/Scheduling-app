@@ -53,6 +53,7 @@ export function ReminderEngine() {
   useEffect(() => {
     if (!enabled) return;
     const check = () => {
+      if (Platform.OS === "android" && AppState.currentState !== "active") return;
       const { settings: s, courses: c, tasks: t, rules: r, toast: show } = latest.current;
       const due = dueReminders({
         now: new Date(),
@@ -79,7 +80,12 @@ export function ReminderEngine() {
               if (latest.current.habits.cloud?.ownerId !== owner) return;
               void latest.current.changeHabits(d => ({ ...d, habits: d.habits.map(h => h.id === reminder.habitId ? { ...h, reminderSnoozedUntil: Date.now() + 15 * 60000 } : h) }));
             } });
-          else void showSystemNotification(reminder.title, reminder.body, reminder.id, "habits");
+          else if (!(pushActiveHere() && owner)) void showSystemNotification(reminder.title, reminder.body, reminder.id, "habits");
+          continue;
+        }
+        if (Platform.OS === "android") {
+          // Native alarms handle closed-app delivery; foreground reminders stay in-app.
+          show({ id: reminder.id, message: reminder.title, description: reminder.body, duration: 15_000 });
           continue;
         }
         if (pushActiveHere()) {

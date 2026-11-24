@@ -1,7 +1,7 @@
 {
   "name": "campus-schedule-app",
   "version": "1.0.0",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@rn-primitives/alert-dialog": "^1.5.2",
@@ -24,6 +24,7 @@
     "expo-document-picker": "~14.0.8",
     "expo-image-picker": "~17.0.11",
     "expo-linking": "~8.0.12",
+    "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.24",
     "expo-status-bar": "~3.0.9",
     "expo-updates": "~29.0.20",
@@ -32,6 +33,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-android-widget": "^0.26.0",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
@@ -61,14 +63,17 @@
     "test:sticky": "node tests/sticky.test.mjs",
     "functions:prepare": "node scripts/prepare-functions.mjs",
     "functions:deploy": "node scripts/prepare-functions.mjs && npx supabase functions deploy reminders --no-verify-jwt && npx supabase functions deploy calendar-feeds --no-verify-jwt",
-    "test:logic": "node scripts/prepare-functions.mjs && node --import ./tests/register.mjs tests/functions.test.ts && node --import ./tests/register.mjs tests/logic.test.ts && node --import ./tests/register.mjs tests/sync-crs.test.ts && node --import ./tests/register.mjs tests/insights.test.ts && node --import ./tests/register.mjs tests/semester.test.ts && node --import ./tests/register.mjs tests/social.test.ts && node --import ./tests/register.mjs tests/pdf.test.ts && node --import ./tests/register.mjs tests/activity.test.ts && node --import ./tests/register.mjs tests/habits.test.ts && node --import ./tests/register.mjs tests/habit-sync.test.ts && node tests/habit-coach.test.mjs",
+    "test:logic": "node scripts/prepare-functions.mjs && node --import ./tests/register.mjs tests/functions.test.ts && node --import ./tests/register.mjs tests/logic.test.ts && node --import ./tests/register.mjs tests/sync-crs.test.ts && node --import ./tests/register.mjs tests/insights.test.ts && node --import ./tests/register.mjs tests/semester.test.ts && node --import ./tests/register.mjs tests/social.test.ts && node --import ./tests/register.mjs tests/pdf.test.ts && node --import ./tests/register.mjs tests/activity.test.ts && node --import ./tests/register.mjs tests/habits.test.ts && node --import ./tests/register.mjs tests/habit-sync.test.ts && node tests/habit-coach.test.mjs && node tests/habit-push.test.mjs && npm run test:native-companion",
     "test:browser": "node tests/browser.test.mjs && node tests/image.test.mjs && node tests/settings.test.mjs && node tests/features.test.mjs && node tests/crs.test.mjs && node tests/planning.test.mjs && node tests/deadlines.test.mjs && node tests/guide.test.mjs && node tests/form5.test.mjs && node tests/eka.test.mjs && node tests/board.test.mjs && node tests/responsive.test.mjs && node tests/sticky.test.mjs && node tests/habits.browser.test.mjs && node tests/habit-anytime.browser.test.mjs",
     "test:security": "node tests/security.test.mjs",
     "test": "npm run typecheck && npm run test:logic && npm run export:web && npm run test:browser",
     "test:habits": "node --import ./tests/register.mjs tests/habits.test.ts && node tests/habits.browser.test.mjs && node tests/habit-anytime.browser.test.mjs",
     "test:habit-database": "node tests/habit-database.test.mjs",
     "test:habit-coach": "node tests/habit-coach.test.mjs",
-    "test:habit-cloud": "node --import ./tests/register.mjs tests/habit-sync.test.ts && node tests/habit-sync.browser.test.mjs"
+    "test:habit-cloud": "node --import ./tests/register.mjs tests/habit-sync.test.ts && node tests/habit-sync.browser.test.mjs",
+    "build:apk": "npx eas-cli build --platform android --profile preview",
+    "test:habit-push": "node scripts/prepare-functions.mjs && node --import ./tests/register.mjs tests/functions.test.ts && node tests/habit-push.test.mjs",
+    "test:native-companion": "node --import ./tests/register.mjs tests/native-companion.test.ts"
   },
   "private": true
 }
